@@ -1,0 +1,16 @@
+{
+  "name": "ferbl",
+  "version": "1.0.0",
+  "description": "Multiplayer Ferbl (Bohemian card game) — WebSocket server + static client",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "jsdom": "^30.0.1",
+    "ws": "^8.18.0"
+  }
+}
