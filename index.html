@@ -36,6 +36,14 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
+html {
+  /* Disable mobile Safari's automatic "font boosting", which inflates small text (and,
+     transitively, form controls sized relative to it) it judges too-small-to-read — this
+     silently overrides explicit small font-sizes throughout the app on iOS otherwise. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   font-family: 'Crimson Text', Georgia, serif;
   background: var(--felt-dark);
