@@ -698,13 +698,20 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   display: none;
 }
 .leave-checkbox {
-  cursor:pointer; accent-color:var(--gold); margin:0; opacity:0.5;
-  filter:sepia(1) saturate(0.3); width:10px; height:10px;
+  /* Fully custom-drawn instead of relying on the native checkbox widget: iOS Safari
+     renders native checkboxes via its own OS-level control with a hard minimum size that
+     transform:scale() (tried first) doesn't reliably override. appearance:none removes
+     that native rendering entirely, so this always renders at the exact size specified. */
+  appearance: none; -webkit-appearance: none;
+  width: 10px; height: 10px;
+  border: 1px solid rgba(201,168,76,0.5); border-radius: 2px;
+  background: transparent; margin: 0; cursor: pointer;
+  position: relative; flex-shrink: 0;
 }
-/* Mobile browsers (notably iOS Safari) render native checkboxes at their own minimum
-   touch-target size, ignoring small width/height alone — shrink it back down visually. */
-@media (max-width: 768px) {
-  .leave-checkbox { transform: scale(0.7); }
+.leave-checkbox:checked { background: var(--gold); border-color: var(--gold); }
+.leave-checkbox:checked::after {
+  content: ''; position: absolute; left: 3px; top: 1px; width: 3px; height: 5px;
+  border: solid var(--felt-dark); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
 }
 </style>
 </head>
