@@ -689,6 +689,15 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   z-index: 500;
   display: none;
 }
+.leave-checkbox {
+  cursor:pointer; accent-color:var(--gold); margin:0; opacity:0.5;
+  filter:sepia(1) saturate(0.3); width:10px; height:10px;
+}
+/* Mobile browsers (notably iOS Safari) render native checkboxes at their own minimum
+   touch-target size, ignoring small width/height alone — shrink it back down visually. */
+@media (max-width: 768px) {
+  .leave-checkbox { transform: scale(0.7); }
+}
 </style>
 </head>
 <body>
@@ -2852,9 +2861,8 @@ function render(){
   } else if(lta&&selfP&&!selfP.out&&G.phase==='PLAYING'){
     const isLeaving=leavingAfterRound[selfP.id];
     lta.innerHTML='<label style="font-size:9px;font-family:Cinzel,serif;letter-spacing:1px;color:rgba(201,168,76,0.3);cursor:pointer;display:inline-flex;align-items:center;gap:4px;position:absolute;bottom:4px;right:8px;">'
-      +'<input type="checkbox" '+(isLeaving?'checked':'')
-      +' onchange="if(socket&&socketReady){sendToServer(\'toggleLeave\',{});}else{leavingAfterRound[curP().id]=this.checked;if(!this.checked)delete leavingAfterRound[curP().id];render();}" '
-      +'style="cursor:pointer;width:10px;height:10px;accent-color:var(--gold);margin:0;opacity:0.5;filter:sepia(1) saturate(0.3);">'
+      +'<input type="checkbox" class="leave-checkbox" '+(isLeaving?'checked':'')
+      +' onchange="if(socket&&socketReady){sendToServer(\'toggleLeave\',{});}else{leavingAfterRound[curP().id]=this.checked;if(!this.checked)delete leavingAfterRound[curP().id];render();}">'
       +t('leave.toggleLabel')+'</label>';
   } else if(lta){ lta.innerHTML=''; }
 }
