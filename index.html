@@ -442,6 +442,7 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   align-items: center;
   gap: 6px;
   overflow: visible;
+  position: relative;
 }
 #handCards {
   position: relative;
@@ -865,7 +866,7 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   <!-- My hand -->
   <div id="handArea">
     <div id="mustPlayNotice"></div>
-    <div id="leaveToggleArea" style="position:relative;min-height:16px;width:100%;"></div>
+    <div id="leaveToggleArea" style="position:absolute;top:2px;right:8px;"></div>
     <div id="handCards"></div>
     <div id="actionBar"></div>
   </div>
@@ -2876,11 +2877,11 @@ function render(){
     // An eliminated player has no active round to "finish" before leaving, so the
     // leave-after-round checkbox doesn't apply to them — offer an immediate way out
     // of the game instead.
-    lta.innerHTML='<button onclick="backToLobby()" style="font-size:9px;font-family:Cinzel,serif;letter-spacing:1px;color:rgba(201,168,76,0.5);background:none;border:1px solid rgba(201,168,76,0.3);border-radius:3px;padding:2px 8px;cursor:pointer;position:absolute;bottom:4px;right:8px;">'
+    lta.innerHTML='<button onclick="backToLobby()" style="font-size:9px;font-family:Cinzel,serif;letter-spacing:1px;color:rgba(201,168,76,0.5);background:none;border:1px solid rgba(201,168,76,0.3);border-radius:3px;padding:2px 8px;cursor:pointer;">'
       +t('leave.returnToLobby')+'</button>';
   } else if(lta&&selfP&&!selfP.out&&G.phase==='PLAYING'){
     const isLeaving=leavingAfterRound[selfP.id];
-    lta.innerHTML='<label style="font-size:7.5px;font-family:Cinzel,serif;letter-spacing:1px;color:rgba(201,168,76,0.3);cursor:pointer;display:inline-flex;align-items:center;gap:3px;position:absolute;top:2px;right:8px;">'
+    lta.innerHTML='<label style="font-size:7.5px;font-family:Cinzel,serif;letter-spacing:1px;color:rgba(201,168,76,0.3);cursor:pointer;display:inline-flex;align-items:center;gap:3px;">'
       +'<input type="checkbox" class="leave-checkbox-input" '+(isLeaving?'checked':'')
       +' onchange="if(socket&&socketReady){sendToServer(\'toggleLeave\',{});}else{leavingAfterRound[curP().id]=this.checked;if(!this.checked)delete leavingAfterRound[curP().id];render();}">'
       +'<span class="leave-checkbox-box"></span>'
