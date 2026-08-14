@@ -2917,9 +2917,20 @@ function renderHand(isMyTurn){
   const cardW=66; const cardH=100;
   const totalW=(n-1)*overlap+cardW;
 
+  // If the natural fan width would exceed what's actually available on screen, shrink
+  // card size, overlap, and arc/lift motion all together by the same factor — rather than
+  // letting a big hand (e.g. after a K of Leaves draw-5 chain) overflow off the edge of
+  // the screen, which is what happened before this scaled everything down at once instead.
+  // Floor is set below the worst realistic case (32 cards — the entire deck) so overflow
+  // stays impossible for any hand size that can actually occur, not just typical ones.
+  const availW = Math.min(window.innerWidth - 16, 520);
+  const scale = totalW > availW ? Math.max(availW / totalW, 0.28) : 1;
+  const sCardW = cardW*scale, sCardH = cardH*scale, sOverlap = overlap*scale;
+  const sTotalW = (n-1)*sOverlap + sCardW;
+
   container.style.position='relative';
-  container.style.height=(cardH+36)+'px';
-  container.style.width=Math.min(totalW+40, window.innerWidth-16)+'px';
+  container.style.height=(sCardH+36*scale)+'px';
+  container.style.width=Math.min(sTotalW+40, window.innerWidth-16)+'px';
   container.style.margin='0 auto';
   container.innerHTML='';
 
@@ -2932,18 +2943,18 @@ function renderHand(isMyTurn){
     const playable=isMyTurn&&(G.drewQueenEmpty?card.r==='Q':canPlay(card));
     const isSel=SEL&&SEL.id===card.id;
     const angle=startAngle+i*angleStep;
-    const arcY=Math.abs(angle)*0.5;
-    const liftY=isSel?-18:0;
+    const arcY=Math.abs(angle)*0.5*scale;
+    const liftY=isSel?-18*scale:0;
 
     const div=document.createElement('div');
     div.className='card suit-'+card.s+(playable?'':' unplayable');
     div.dataset.cardId=card.id;
     div.style.cssText=[
       'position:absolute',
-      'left:'+(i*overlap)+'px',
+      'left:'+(i*sOverlap)+'px',
       'bottom:0',
-      'width:'+cardW+'px',
-      'height:'+cardH+'px',
+      'width:'+sCardW+'px',
+      'height:'+sCardH+'px',
       'transform-origin:bottom center',
       'transform:rotate('+angle+'deg) translateY('+(arcY+liftY)+'px)',
       'transition:transform 0.15s,box-shadow 0.15s',
