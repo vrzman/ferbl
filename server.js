@@ -8,12 +8,6 @@
 //   - Broadcast getPublicState() (per-recipient — hands are private)
 //
 // All actual game rules live in game.js. This file has zero card logic.
-//
-// KNOWN GAP (flagging honestly, not silently patched): game.js's round-start
-// logic (applyInit) is a simpler skeleton than index.html's fully-evolved
-// client ruleset — e.g. no multi-8 dealer chains for 3+ players. Fine for a
-// 2-player local test of the network loop; needs a parity pass before this
-// is correct for the full ruleset.
 // ══════════════════════════════════════════════════════════════
 
 const http = require('http');

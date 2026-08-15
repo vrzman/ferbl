@@ -237,6 +237,7 @@ function chooseDirection(state, dir, log) {
 
   const dealer = state.players.find(p => p.id === state.dealerPid) || alive(state)[0];
   const first = firstAliveAfterDealer(state, dir);
+  let sideEffectDraws = null;
 
   if (state.dealerFinalCard) {
     const fc = state.dealerFinalCard;
@@ -248,6 +249,8 @@ function chooseDirection(state, dir, log) {
         const pi = ((di + s * dir) % a.length + a.length) % a.length;
         a[pi].hand = a[pi].hand.concat(drawN(state, 1, log));
         log(`${a[pi].name} draws 1 card (10 of Hearts).`);
+        if (!sideEffectDraws) sideEffectDraws = {};
+        sideEffectDraws[a[pi].id] = (sideEffectDraws[a[pi].id] || 0) + 1;
       }
       setCur(state, (dealer.out ? first : dealer).id);
       log(`${(dealer.out ? first : dealer).name} plays again.`);
@@ -264,7 +267,13 @@ function chooseDirection(state, dir, log) {
     const ic = getTop(state);
     if (ic.r === '10' && ic.s === 'Hearts') {
       const a = alive(state);
-      a.forEach(p => { if (p.id !== dealer.id) p.hand = p.hand.concat(drawN(state, 1, log)); });
+      a.forEach(p => {
+        if (p.id !== dealer.id) {
+          p.hand = p.hand.concat(drawN(state, 1, log));
+          if (!sideEffectDraws) sideEffectDraws = {};
+          sideEffectDraws[p.id] = (sideEffectDraws[p.id] || 0) + 1;
+        }
+      });
       setCur(state, (dealer.out ? first : dealer).id);
       log(`Initial 10 of Hearts — all players except ${dealer.name} draw 1. ${(dealer.out ? first : dealer).name} plays first.`);
     } else {
@@ -273,7 +282,7 @@ function chooseDirection(state, dir, log) {
       log(`${first.name} goes first.`);
     }
   }
-  return { success: true };
+  return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}) };
 }
 
 // ── Game state factory ────────────────────────────────────────
@@ -557,15 +566,28 @@ function actionPlayCard(state, playerId, cardId, announcement) {
     // gap existed for 7, K of Leaves, and 10 of Hearts.
     state.dealerPlaying8 = false;
     if (!state.dealerFinalCard) state.dealerFinalCard = { r: card.r, s: card.s, id: card.id };
-    const handSizesBefore2 = {};
-    state.players.forEach(p => { handSizesBefore2[p.id] = p.hand.length; });
-    const playAgain = applyEffect(state, card, player, log);
-    state.players.forEach(p => {
-      if (p.id !== player.id) {
-        const diff = p.hand.length - (handSizesBefore2[p.id] || 0);
-        if (diff > 0) { if (!sideEffectDraws) sideEffectDraws = {}; sideEffectDraws[p.id] = (sideEffectDraws[p.id] || 0) + diff; }
-      }
-    });
+
+    // 10 of Hearts is deferred entirely rather than applied here like the others: its
+    // effect needs to know direction (who counts as "others", and in what order), which
+    // isn't settled yet for 3+ players. Applying it eagerly here previously (a) drew
+    // cards using a stale/leftover direction, and (b) granted an immediate replay that
+    // returned early — skipping the DIR_CHOICE requirement for 3+ players outright, since
+    // chooseDirection() (which already has correct deferred-resolution logic for exactly
+    // this case) never got a chance to run at all. A/7/K/9 don't have this problem — they
+    // just set flags that are correct regardless of when they're set — so they keep
+    // applying immediately below.
+    let playAgain = false;
+    if (!(card.r === '10' && card.s === 'Hearts')) {
+      const handSizesBefore2 = {};
+      state.players.forEach(p => { handSizesBefore2[p.id] = p.hand.length; });
+      playAgain = applyEffect(state, card, player, log);
+      state.players.forEach(p => {
+        if (p.id !== player.id) {
+          const diff = p.hand.length - (handSizesBefore2[p.id] || 0);
+          if (diff > 0) { if (!sideEffectDraws) sideEffectDraws = {}; sideEffectDraws[p.id] = (sideEffectDraws[p.id] || 0) + diff; }
+        }
+      });
+    }
 
     if (playAgain) {
       log(`${player.name} plays again.`);
@@ -575,6 +597,17 @@ function actionPlayCard(state, playerId, cardId, announcement) {
     if (needsDirChoice(state)) {
       state.phase = 'DIR_CHOICE';
       log(`Dealer played their final card (${cardStr(card)}) — now choose direction.`);
+    } else if (card.r === '10' && card.s === 'Hearts') {
+      // 2-player: direction is a non-choice (always effectively clockwise), so resolve
+      // immediately via chooseDirection() itself — the single source of truth for how a
+      // deferred dealerFinalCard resolves, rather than a second, less complete inline
+      // copy of the same logic (the one just below, for A/7/K/J/Q) that never actually
+      // handled 10 of Hearts at all. chooseDirection() requires phase===DIR_CHOICE as a
+      // precondition, so set that first — mirrors what actionChooseDirection's own
+      // "2-player auto" branch already does.
+      state.phase = 'DIR_CHOICE';
+      const dirResult = chooseDirection(state, 1, log);
+      if (dirResult.sideEffectDraws) sideEffectDraws = Object.assign({}, sideEffectDraws, dirResult.sideEffectDraws);
     } else {
       // 2-player: advance to other player directly
       const otherP = alive(state).find(x => x.id !== player.id) || alive(state)[0];
