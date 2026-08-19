@@ -2998,7 +2998,12 @@ function render(){
   const daSvg=document.getElementById('dirArrowSvg');
   const dirInd=document.getElementById('dirIndicator');
   if(daSvg&&dirInd){
-    const showDir=G.phase==='PLAYING'||G.phase==='ROUND_END';
+    const dealerObj=G.players.find(pl=>pl.id===G.dealerPid);
+    const isGhostDealer=!!(dealerObj&&dealerObj.out);
+    const aliveCount=alive().length;
+    const showDir = aliveCount>2
+      ? (G.phase==='PLAYING'||G.phase==='ROUND_END')
+      : (aliveCount===2 && isGhostDealer && G.phase==='DIR_CHOICE');
     dirInd.style.visibility=showDir?'visible':'hidden';
     // Arrow SVG naturally shows clockwise — mirror for counter-clockwise
     daSvg.style.transform=G.dir===1?'scaleX(-1)':'scaleX(1)';
