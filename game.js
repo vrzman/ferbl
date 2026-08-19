@@ -872,6 +872,36 @@ function getPublicState(state, forPlayerId) {
 
 // ── Exports ───────────────────────────────────────────────────
 
+// Called when a disconnected player's reconnect grace period expires — removes them
+// from the round immediately rather than leaving the game stalled waiting on someone
+// who isn't coming back. Reuses the same `out` flag as normal elimination/voluntary
+// leaving, so ghost-dealer and turn-order logic (which already know to skip `out`
+// players) handle them correctly with no further special-casing needed.
+function forceRemovePlayer(state, pid, log) {
+  const player = state.players.find(p => p.id === pid);
+  if (!player || player.out) return { success: true, removed: false };
+  const wasCurrentTurn = state.phase === 'PLAYING' && state.players[state.cur] && state.players[state.cur].id === pid;
+  // Computed BEFORE marking them out, so alive() still includes them at their correct
+  // turn-order slot — nxt() needs that to find the right neighbor.
+  const nextPid = wasCurrentTurn ? nxt(state, pid) : null;
+  player.out = true;
+  log(`${player.name} disconnected and did not reconnect in time — removed from the game.`);
+
+  const remaining = alive(state);
+  if (remaining.length <= 1) {
+    // Force the round (and likely the game) to end right now — endRound() already
+    // handles both the "1 player left, they win" and "0 players left, abandoned" cases.
+    const endResult = endRound(state, log);
+    return { success: true, removed: true, ...endResult };
+  }
+
+  // Any pending forced effect (a draw obligation, a skip) stays in play rather than
+  // vanishing — it now simply applies to whoever becomes current, same as it would have
+  // if this player had taken their turn and passed play along normally.
+  if (wasCurrentTurn && nextPid) setCur(state, nextPid);
+  return { success: true, removed: true };
+}
+
 module.exports = {
   SUITS, RANKS,
   buildDeck, shuffle, cardPoints, cardStr,
@@ -883,6 +913,6 @@ module.exports = {
   canPlay, playerHasPlayableCard, playerMustPlay,
   getPublicState,
   highCardDraw,
-  applyLeavingPlayers, endRound,
+  applyLeavingPlayers, endRound, forceRemovePlayer,
   alive, getTop, curP,
 };

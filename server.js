@@ -37,8 +37,27 @@ const httpServer = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer });
 httpServer.listen(PORT);
 
+// How long a mid-game disconnect (e.g. a backgrounded mobile tab killing the socket) gets
+// before it's treated as a permanent departure and the player is removed from the round.
+const RECONNECT_GRACE_MS = 90 * 1000;
+
+// Standard ws heartbeat: ping every connection periodically and terminate any that don't
+// respond. This does two things — (1) detects genuinely dead connections faster than
+// waiting on a TCP-level failure, so a stale seat starts its reconnect grace period
+// promptly instead of lingering as a zombie; (2) the regular traffic helps avoid idle-
+// connection timeouts some hosting proxies/mobile carrier NATs impose on quiet sockets.
+function heartbeatPong() { this.isAlive = true; }
+const heartbeatTimer = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) { ws.terminate(); return; }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 25 * 1000);
+wss.on('close', () => clearInterval(heartbeatTimer));
+
 // room code -> { state, players: Map(pid -> ws), playerNames: Map(pid -> name),
-//                hostPid, leavingAfterRound: Set, settings }
+//                hostPid, leavingAfterRound: Set, disconnected: Map(pid -> {name,timer}), settings }
 const rooms = new Map();
 
 function genRoomCode() {
@@ -85,6 +104,8 @@ function broadcastLobby(room) {
 wss.on('connection', (ws) => {
   ws.pid = null;
   ws.roomCode = null;
+  ws.isAlive = true;
+  ws.on('pong', heartbeatPong);
 
   ws.on('message', (raw) => {
     let msg;
@@ -97,19 +118,34 @@ wss.on('connection', (ws) => {
       const room = rooms.get(ws.roomCode);
       const wasHost = ws.pid === room.hostPid;
       const gameNotStarted = !room.state;
-      room.players.delete(ws.pid);
+      const pid = ws.pid;
+      room.players.delete(pid);
       // If the host disconnects while everyone is still on the waiting-room screen (game
       // hasn't started), there's no host-migration logic — nobody left could start the game
       // anyway. Rather than leaving the remaining players stranded on a waiting screen with
       // a dead "waiting for host" state, close the room out from under them and send everyone
       // back to the initial lobby screen. (Mid-game host disconnects are unaffected — those
-      // players are just treated as a disconnected player like any other, per the existing
-      // leaving/ghost-dealer handling below.)
+      // players are just treated as a disconnected player like any other, per the reconnect
+      // grace period below.)
       if (wasHost && gameNotStarted && room.players.size > 0) {
         for (const ws2 of room.players.values()) send(ws2, 'hostLeft', {});
         rooms.delete(ws.roomCode);
         return;
       }
+
+      // Mid-game disconnect: switching browser tabs (especially on mobile) commonly kills
+      // the socket even though the person didn't mean to leave. Give them a window to
+      // reconnect instead of immediately treating it as a permanent departure — their
+      // seat, hand, and lives stay exactly as they were; everyone else just sees a
+      // "reconnecting..." indicator in the meantime.
+      const player = room.state && room.state.players.find(p => p.id === pid);
+      if (room.state && player && !player.out && room.state.phase !== 'GAME_OVER') {
+        const timer = setTimeout(() => handleDisconnectTimeout(room, pid), RECONNECT_GRACE_MS);
+        room.disconnected.set(pid, { name: player.name, timer });
+        broadcastState(room, { disconnectedPids: [...room.disconnected.keys()] });
+        return;
+      }
+
       if (room.players.size === 0) {
         setTimeout(() => {
           if (rooms.has(ws.roomCode) && rooms.get(ws.roomCode).players.size === 0) {
@@ -136,6 +172,7 @@ function handleMessage(ws, msg) {
     case 'hcdAck': return onHcdAck(ws, msg);
     case 'newGame': return onNewGame(ws, msg);
     case 'debugAction': return onDebugAction(ws, msg);
+    case 'reconnect': return onReconnect(ws, msg);
     default: return;
   }
 }
@@ -153,6 +190,7 @@ function onCreateRoom(ws, msg) {
     hostPid: pid,
     leavingAfterRound: new Set(),
     readyForNextRound: new Set(),
+    disconnected: new Map(), // pid -> { name, timer } — mid-game disconnects within their reconnect grace period
     settings: { numPlayers: msg.numPlayers || 2, startCards: msg.startCards ?? 4 },
   };
   rooms.set(code, room);
@@ -241,6 +279,56 @@ function maybeAutoResolveGhostDirection(room) {
   if (stillConnected && !dealer.ghostLeaver) return;
   state.log.push(`${dealer.name} is out and cannot choose — direction picked automatically.`);
   G.actionChooseDirection(state, Math.random() < 0.5 ? 1 : -1);
+}
+
+// ── Disconnect / reconnect ────────────────────────────────────
+
+// Fires when a mid-game disconnect's reconnect grace period (RECONNECT_GRACE_MS) runs out
+// without them coming back. No-ops if they already reconnected (which clears the timer) or
+// the room's gone.
+function handleDisconnectTimeout(room, pid) {
+  if (!room.disconnected.has(pid)) return;
+  room.disconnected.delete(pid);
+  if (!room.state) return;
+  const log = msg => room.state.log.push(msg);
+  const result = G.forceRemovePlayer(room.state, pid, log);
+  maybeAutoResolveGhostDirection(room);
+  broadcastState(room, { lastResult: result, removedPid: pid, disconnectedPids: [...room.disconnected.keys()] });
+  checkNextRoundReady(room);
+  checkHcdAcks(room);
+  // If that was the last connected-or-reconnecting player, clean the room up rather than
+  // leaving it to linger in memory indefinitely with nobody left who could ever return.
+  if (room.players.size === 0 && room.disconnected.size === 0) {
+    setTimeout(() => {
+      if (rooms.has(room.code) && rooms.get(room.code).players.size === 0 && rooms.get(room.code).disconnected.size === 0) {
+        rooms.delete(room.code);
+      }
+    }, 5 * 60 * 1000);
+  }
+}
+
+function onReconnect(ws, msg) {
+  const code = (msg.roomCode || '').toUpperCase();
+  const room = rooms.get(code);
+  const pid = msg.pid;
+  if (!room || !pid || !room.disconnected.has(pid)) {
+    send(ws, 'reconnectFailed', {});
+    return;
+  }
+  const entry = room.disconnected.get(pid);
+  clearTimeout(entry.timer);
+  room.disconnected.delete(pid);
+  ws.pid = pid;
+  ws.roomCode = code;
+  ws.isAlive = true;
+  room.players.set(pid, ws);
+  room.state.log.push(`${entry.name} reconnected.`);
+  send(ws, 'reconnected', {
+    roomCode: code, pid,
+    isHost: pid === room.hostPid,
+    numPlayers: room.settings.numPlayers,
+  });
+  broadcastState(room, { disconnectedPids: [...room.disconnected.keys()] });
 }
 
 // ── High card draw overlay sync ─────────────────────────────

@@ -638,6 +638,11 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 }
 .one-card-indicator.queen { background: rgba(45,110,30,0.6); color: #8ee87a; border: 1px solid rgba(109,188,90,0.5); box-shadow: 0 0 8px rgba(109,188,90,0.3); }
 .one-card-indicator.other { background: rgba(160,24,24,0.5); color: #f07070; border: 1px solid rgba(224,85,85,0.5); }
+.disconnected-badge {
+  font-size: 8px; font-family: 'Cinzel', serif; letter-spacing: 0.5px;
+  color: #f0c060; background: rgba(160,120,24,0.35); border: 1px solid rgba(224,180,85,0.5);
+  border-radius: 6px; padding: 1px 5px; vertical-align: middle;
+}
 
 /* ── Must play notice ── */
 #mustPlayNotice {
@@ -690,6 +695,37 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 }
 #toast.hidden { opacity: 0; }
 
+#wakingOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,46,28,0.95);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  transition: opacity 0.3s;
+}
+#wakingOverlay.hidden { opacity: 0; pointer-events: none; }
+.waking-spinner {
+  width: 36px; height: 36px;
+  border: 3px solid rgba(201,168,76,0.2);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: wakingSpin 0.9s linear infinite;
+}
+@keyframes wakingSpin { to { transform: rotate(360deg); } }
+.waking-text {
+  font-family: 'Cinzel', serif;
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--cream);
+  text-align: center;
+  max-width: 260px;
+  line-height: 1.6;
+}
+
 /* ── Debug panel (keep from tester) ── */
 #debugPanel {
   position: fixed;
@@ -725,6 +761,12 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 
 <!-- ══ TOAST ══ -->
 <div id="toast" class="hidden"></div>
+
+<!-- ══ WAKING UP SERVER OVERLAY (free-tier cold start can take up to ~60s) ══ -->
+<div id="wakingOverlay" class="hidden">
+  <div class="waking-spinner"></div>
+  <div id="wakingText" class="waking-text"></div>
+</div>
 
 <!-- ══ LOBBY SCREEN ══ -->
 <div id="lobbyScreen" class="screen">
@@ -1007,6 +1049,17 @@ const STRINGS = {
     'waiting.waitingForHost': 'Waiting for host to start...',
     'waiting.emptySlot': 'Waiting...',
     'waiting.hostLeft': 'Host left — room closed',
+    'net.disconnected': 'Connection lost',
+    'net.reconnecting': 'Reconnecting…',
+    'net.reconnected': 'Reconnected!',
+    'net.reconnectFailed': 'Could not rejoin — the game may have ended.',
+    'net.reconnectGaveUp': 'Could not reconnect.',
+    'net.playerDisconnected': '{name} disconnected — waiting to reconnect…',
+    'net.playerReconnected': '{name} reconnected!',
+    'net.playerRemoved': '{name} could not reconnect and was removed.',
+    'net.disconnectedBadge': 'RECONNECTING',
+    'net.wakingUp': 'Waking up the server…',
+    'net.wakingUpLong': 'Still waking up — this can take up to a minute on the free tier…',
     'game.round': 'ROUND',
     'game.log': 'LOG',
     'game.newGame': 'NEW GAME',
@@ -1137,6 +1190,17 @@ const STRINGS = {
     'waiting.waitingForHost': 'Čekání na začátek hry...',
     'waiting.emptySlot': 'Čekání na připojení...',
     'waiting.hostLeft': 'Hostitel odešel — místnost byla zrušena',
+    'net.disconnected': 'Spojení ztraceno',
+    'net.reconnecting': 'Připojování…',
+    'net.reconnected': 'Znovu připojeno!',
+    'net.reconnectFailed': 'Nepodařilo se znovu připojit — hra možná skončila.',
+    'net.reconnectGaveUp': 'Nepodařilo se znovu připojit.',
+    'net.playerDisconnected': '{jméno} se odpojil(a) — čeká se na opětovné připojení…',
+    'net.playerReconnected': '{jméno} se znovu připojil(a)!',
+    'net.playerRemoved': '{jméno} se nepodařilo znovu připojit a byl(a) odebrán(a) ze hry.',
+    'net.disconnectedBadge': 'PŘIPOJOVÁNÍ',
+    'net.wakingUp': 'Probouzí se server…',
+    'net.wakingUpLong': 'Server se stále probouzí — na bezplatné úrovni to může trvat až minutu…',
     'game.round': 'Kolo',
     'game.log': 'Log',
     'game.newGame': 'Nová hra',
@@ -1352,6 +1416,29 @@ let myName = '';
 let roomCode = '';
 let isHost = false;
 
+// ── Reconnection state ──
+// intentionalDisconnect distinguishes "we meant to close this socket" (leaving, host
+// closed the room, etc.) from a real drop — only the latter should trigger a reconnect
+// attempt. Set this to true immediately before any deliberate socket.close() call.
+let intentionalDisconnect = false;
+let reconnecting = false;
+const RECONNECT_MAX_ATTEMPTS = 5;
+const RECONNECT_RETRY_DELAY_MS = 2000;
+
+// Session info is persisted so a reconnect attempt can survive not just a dropped socket
+// (roomCode/myId already in memory for that case) but also a full page reload — some
+// mobile browsers discard a long-backgrounded tab's JS context entirely rather than just
+// killing its network connections, which would otherwise lose this info completely.
+function saveSession(){
+  try { sessionStorage.setItem('ferbl_session', JSON.stringify({ roomCode, pid: myId, name: myName })); } catch(e){}
+}
+function clearSession(){
+  try { sessionStorage.removeItem('ferbl_session'); } catch(e){}
+}
+function loadSession(){
+  try { const raw = sessionStorage.getItem('ferbl_session'); return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
+}
+
 // ══════════════════════════════════════════════════════════════
 // Networking — thin WebSocket client. Mirrors the message protocol
 // implemented in server/server.js. Server is the sole source of
@@ -1392,7 +1479,10 @@ function connectSocket(){
     socket.onerror = () => { reject(new Error('Could not connect to server')); };
     socket.onclose = () => {
       socketReady = false;
-      if (G && G.phase && G.phase !== 'GAME_OVER') {
+      if (intentionalDisconnect) { intentionalDisconnect = false; return; }
+      if (G && G.phase && G.phase !== 'GAME_OVER' && roomCode && myId) {
+        attemptReconnect();
+      } else {
         toast(t('net.disconnected') || 'Connection lost');
       }
     };
@@ -1401,6 +1491,52 @@ function connectSocket(){
       try { msg = JSON.parse(ev.data); } catch { return; }
       handleServerMessage(msg);
     };
+  });
+}
+
+// Render's free tier sleeps after 15 min idle — the first connection after that can take
+// up to ~60s to wake back up, with nothing on screen to explain the wait otherwise. Shows
+// a spinner only if the connection is actually taking a while (skips it entirely for a
+// normal, already-warm connection), and upgrades the message if it's taking especially long.
+let wakingTimer1 = null, wakingTimer2 = null;
+function showWakingOverlayIfSlow(){
+  wakingTimer1 = setTimeout(() => {
+    document.getElementById('wakingText').textContent = t('net.wakingUp');
+    document.getElementById('wakingOverlay').classList.remove('hidden');
+  }, 2000);
+  wakingTimer2 = setTimeout(() => {
+    document.getElementById('wakingText').textContent = t('net.wakingUpLong');
+  }, 10000);
+}
+function hideWakingOverlay(){
+  if (wakingTimer1) clearTimeout(wakingTimer1);
+  if (wakingTimer2) clearTimeout(wakingTimer2);
+  wakingTimer1 = null; wakingTimer2 = null;
+  document.getElementById('wakingOverlay').classList.add('hidden');
+}
+
+// Fired on an unexpected socket close mid-game (tab backgrounded, brief network drop,
+// etc.) — tries to open a fresh connection and reattach to the same seat via the
+// server's reconnect grace window, retrying a few times with backoff before giving up.
+function attemptReconnect(attempt){
+  attempt = attempt || 1;
+  if (!reconnecting) {
+    reconnecting = true;
+    toast(t('net.reconnecting') || 'Reconnecting…', 8000);
+  }
+  socket = null; socketReady = false;
+  connectSocket().then(() => {
+    sendToServer('reconnect', { roomCode, pid: myId });
+  }).catch(() => {
+    if (attempt < RECONNECT_MAX_ATTEMPTS) {
+      setTimeout(() => attemptReconnect(attempt + 1), RECONNECT_RETRY_DELAY_MS);
+    } else {
+      reconnecting = false;
+      toast(t('net.reconnectGaveUp') || 'Could not reconnect.');
+      clearSession();
+      G = null; myId = null; roomCode = ''; isHost = false;
+      showScreen('lobbyScreen');
+    }
   });
 }
 
@@ -1416,13 +1552,33 @@ function handleServerMessage(msg){
       myId = msg.pid;
       roomCode = msg.roomCode;
       isHost = !!msg.isHost;
+      saveSession();
       document.getElementById('displayCode').textContent = roomCode;
       showWaitingRoom([], null, msg.numPlayers);
       break;
+    case 'reconnected':
+      myId = msg.pid;
+      roomCode = msg.roomCode;
+      isHost = !!msg.isHost;
+      reconnecting = false;
+      saveSession();
+      toast(t('net.reconnected') || 'Reconnected!');
+      break;
+    case 'reconnectFailed':
+      reconnecting = false;
+      toast(t('net.reconnectFailed') || 'Could not rejoin — the game may have ended.');
+      clearSession();
+      if (socket) { intentionalDisconnect = true; socket.close(); }
+      socket = null; socketReady = false;
+      G = null; myId = null; roomCode = ''; isHost = false;
+      showScreen('lobbyScreen');
+      break;
     case 'hostLeft':
+      intentionalDisconnect = true;
       if (socket) socket.close();
       socket = null; socketReady = false;
       roomCode = null; myId = null; isHost = false;
+      clearSession();
       showScreen('lobbyScreen');
       toast(t('waiting.hostLeft'));
       break;
@@ -1442,9 +1598,29 @@ function handleServerMessage(msg){
         document.getElementById('debugToggle').style.display = 'block';
       }
       break;
-    case 'state':
+    case 'state': {
+      const prevDisconnected = (G && G.disconnectedPids) || [];
       applyServerState(msg.state, msg.lastResult, msg.actorPid);
+      const newDisconnected = msg.disconnectedPids || [];
+      G.disconnectedPids = newDisconnected;
+      newDisconnected.forEach(pid => {
+        if (!prevDisconnected.includes(pid)) {
+          const p = G.players.find(pl => pl.id === pid);
+          if (p) toast(t('net.playerDisconnected', { name: p.name, jméno: p.name }), 4000);
+        }
+      });
+      prevDisconnected.forEach(pid => {
+        if (!newDisconnected.includes(pid) && pid !== msg.removedPid) {
+          const p = G.players.find(pl => pl.id === pid);
+          if (p && !p.out) toast(t('net.playerReconnected', { name: p.name, jméno: p.name }), 3000);
+        }
+      });
+      if (msg.removedPid) {
+        const p = G.players.find(pl => pl.id === msg.removedPid);
+        if (p) toast(t('net.playerRemoved', { name: p.name, jméno: p.name }), 5000);
+      }
       break;
+    }
     case 'hcdDismiss':
       finishHcdOverlay();
       break;
@@ -1771,12 +1947,15 @@ async function createGame() {
   myName = document.getElementById('playerName').value.trim() || 'Player';
   const numPlayers = parseInt(document.getElementById('numPlayers').value);
   const startCards = parseInt(document.getElementById('startCards').value);
+  showWakingOverlayIfSlow();
   try {
     await connectSocket();
   } catch (e) {
+    hideWakingOverlay();
     toast('Cannot reach server — check connection');
     return;
   }
+  hideWakingOverlay();
   sendToServer('createRoom', { name: myName, numPlayers, startCards });
 }
 
@@ -1784,12 +1963,15 @@ async function joinGame() {
   myName = document.getElementById('playerName').value.trim() || 'Player';
   const code = document.getElementById('joinCode').value.toUpperCase();
   if (code.length !== 4) { toast('Enter a 4-letter room code'); return; }
+  showWakingOverlayIfSlow();
   try {
     await connectSocket();
   } catch (e) {
+    hideWakingOverlay();
     toast('Cannot reach server — check connection');
     return;
   }
+  hideWakingOverlay();
   sendToServer('joinRoom', { name: myName, roomCode: code });
 }
 
@@ -1813,8 +1995,10 @@ function updateMaxCards(){
 
 function leaveRoom() {
   if (socket && socketReady) sendToServer('toggleLeave', {});
+  intentionalDisconnect = true;
   if (socket) socket.close();
   socket = null; socketReady = false;
+  clearSession();
   showScreen('lobbyScreen');
 }
 
@@ -1854,7 +2038,8 @@ function startGame() {
 }
 
 function backToLobby() {
-  if (socket && socketReady) { socket.close(); socket = null; socketReady = false; }
+  if (socket && socketReady) { intentionalDisconnect = true; socket.close(); socket = null; socketReady = false; }
+  clearSession();
   showScreen('lobbyScreen');
   hideOverlays();
 }
@@ -3049,9 +3234,10 @@ function renderOpponents(){
             : '')
     ):'';
     // Label position: with 2 opponents, left=clockwise next, right=counter-clockwise next
+    const isDisconnected=G.disconnectedPids&&G.disconnectedPids.includes(p.id);
     return `<div class="opponent-slot${isCur?' current':''}">
       <div class="opponent-name">
-        ${p.name}
+        ${p.name}${isDisconnected?` <span class="disconnected-badge">${t('net.disconnectedBadge')}</span>`:''}
       </div>
       <div class="opponent-cards">${miniCards}</div>
       <div class="opponent-lives">${dots}</div>
@@ -3411,6 +3597,19 @@ function dbPopulatePlayers(){
 
 // ── Init ──
 document.getElementById('playerName').focus();
+
+// If a session was persisted from a previous page load (mobile browsers can discard a
+// long-backgrounded tab's JS context entirely, not just drop its socket), try to silently
+// rejoin that room/seat before falling back to the normal landing screen.
+(function attemptSessionResume(){
+  const session = loadSession();
+  if (!session || !session.roomCode || !session.pid) return;
+  myId = session.pid;
+  roomCode = session.roomCode;
+  myName = session.name || '';
+  attemptReconnect();
+})();
+
 </script>
 
 <!-- ══ DEBUG PANEL ══ -->
