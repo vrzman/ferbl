@@ -880,25 +880,69 @@ function getPublicState(state, forPlayerId) {
 function forceRemovePlayer(state, pid, log) {
   const player = state.players.find(p => p.id === pid);
   if (!player || player.out) return { success: true, removed: false };
-  const wasCurrentTurn = state.phase === 'PLAYING' && state.players[state.cur] && state.players[state.cur].id === pid;
-  // Computed BEFORE marking them out, so alive() still includes them at their correct
-  // turn-order slot — nxt() needs that to find the right neighbor.
-  const nextPid = wasCurrentTurn ? nxt(state, pid) : null;
-  player.out = true;
-  log(`${player.name} disconnected and did not reconnect in time — removed from the game.`);
+  const wasPlaying = state.phase === 'PLAYING';
 
-  const remaining = alive(state);
-  if (remaining.length <= 1) {
-    // Force the round (and likely the game) to end right now — endRound() already
-    // handles both the "1 player left, they win" and "0 players left, abandoned" cases.
-    const endResult = endRound(state, log);
-    return { success: true, removed: true, ...endResult };
+  // Snapshot everyone's current hand (including the disconnecting player's) BEFORE any
+  // mutation, so a forced round-end below reflects the moment of disconnect.
+  const beforeRemoval = alive(state);
+
+  // A disconnect-timeout elimination is a full loss — same bookkeeping as losing all
+  // lives in a normal round — not a soft "removed" state that leaves lives untouched
+  // (which previously left the scoreboard/win logic in an inconsistent half-state).
+  player.losses = state.startLives + 1;
+  player.lives = 0;
+  player.out = true;
+  log(`${player.name} disconnected and did not reconnect in time — eliminated from the game.`);
+
+  const remaining = state.players.filter(p => !p.out);
+
+  if (wasPlaying) {
+    // Their disconnect broke the round in progress — possibly mid-turn, with no way for
+    // anyone else to act. Rather than silently continuing without them (which can leave
+    // the round waiting on a turn that will never come), end the round right now and show
+    // everyone a round-end screen recording the elimination.
+    state.phase = 'ROUND_END';
+    const scores = beforeRemoval.map(p => {
+      let pts = p.hand.reduce((s, c) => s + cardPoints(c), 0);
+      if (pts >= 100) pts -= 100;
+      return { pid: p.id, pts, cards: p.hand.length, hand: [...p.hand] };
+    });
+    state.roundResult = {
+      scores,
+      roundWinnerPid: state.roundWinnerPid || null,
+      losers: [pid],
+      disconnectedPid: pid,
+    };
+
+    if (remaining.length > 0) {
+      // Eliminated-by-disconnect ghost-deals the next round, same as any other
+      // elimination.
+      state.dealerPid = pid;
+      log(`${player.name} is eliminated and ghost deals next round.`);
+    }
+
+    if (remaining.length <= 1) {
+      state.phase = 'GAME_OVER';
+      const winner = remaining[0] || null;
+      state.winner = winner ? winner.id : null;
+      state.abandoned = remaining.length === 0;
+      log(winner ? `${winner.name} wins the game!` : 'Game abandoned — no players remaining.');
+      return { success: true, removed: true, roundOver: true, gameOver: true, scores, losers: [pid], winner: state.winner, abandoned: state.abandoned, roundWinnerPid: state.roundWinnerPid || null };
+    }
+    return { success: true, removed: true, roundOver: true, scores, losers: [pid], roundWinnerPid: state.roundWinnerPid || null };
   }
 
-  // Any pending forced effect (a draw obligation, a skip) stays in play rather than
-  // vanishing — it now simply applies to whoever becomes current, same as it would have
-  // if this player had taken their turn and passed play along normally.
-  if (wasCurrentTurn && nextPid) setCur(state, nextPid);
+  // Disconnect happened outside active play (e.g. during a ROUND_END/DIR_CHOICE wait) —
+  // no need to force a new round-end transition; existing ack-gating (checkNextRoundReady,
+  // checkHcdAcks) already excludes disconnected players and will carry the room forward.
+  if (remaining.length <= 1) {
+    state.phase = 'GAME_OVER';
+    const winner = remaining[0] || null;
+    state.winner = winner ? winner.id : null;
+    state.abandoned = remaining.length === 0;
+    log(winner ? `${winner.name} wins the game!` : 'Game abandoned — no players remaining.');
+    return { success: true, removed: true, gameOver: true, winner: state.winner, abandoned: state.abandoned };
+  }
   return { success: true, removed: true };
 }
 

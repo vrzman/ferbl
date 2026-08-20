@@ -1152,6 +1152,8 @@ const STRINGS = {
     'direction.subtitle': '{name} — which way to play?',
     'roundend.queenTitle': 'Round {round} — {name} ends it with a Queen!',
     'roundend.lifeTitle': 'Round {round} — {losers} loses a life!',
+    'roundend.disconnectTitle': 'Round {round} — {name} disconnected and was eliminated',
+    'roundend.disconnectedLabel': 'Disconnected',
     'ui.endedRoundBadge': 'ENDED ROUND',
     'ui.eliminatedBadge': 'ELIMINATED',
     'game.deckLeft': '{n} left',
@@ -1293,6 +1295,8 @@ const STRINGS = {
     'direction.subtitle': '{jméno} - jakým směrem se hraje?',
     'roundend.queenTitle': 'Kolo {round} – {jméno} zavírá svrškem!',
     'roundend.lifeTitle': 'Kolo {round} - {jméno} ztrácí život',
+    'roundend.disconnectTitle': 'Kolo {round} - {jméno} se odpojil/a a byl/a vyřazen/a',
+    'roundend.disconnectedLabel': 'Odpojen/a',
     'ui.endedRoundBadge': 'Zavřel/a',
     'ui.eliminatedBadge': 'Vyřazen/a',
     'game.deckLeft': 'Zbývá {n}',
@@ -1422,7 +1426,24 @@ let isHost = false;
 // attempt. Set this to true immediately before any deliberate socket.close() call.
 let intentionalDisconnect = false;
 let reconnecting = false;
-const RECONNECT_MAX_ATTEMPTS = 5;
+// pid -> Date.now() when we first saw them listed as disconnected, purely for rendering
+// a local countdown alongside the "disconnected" badge — the server is the actual
+// authority on when the grace period expires.
+const disconnectStartTimes = {};
+setInterval(() => {
+  document.querySelectorAll('.disconnected-badge[data-pid]').forEach(el => {
+    const pid = el.getAttribute('data-pid');
+    const start = disconnectStartTimes[pid];
+    const countdownEl = el.querySelector('.disc-countdown');
+    if (!start || !countdownEl) return;
+    const remaining = Math.max(0, Math.ceil((RECONNECT_GRACE_MS - (Date.now() - start)) / 1000));
+    countdownEl.textContent = ` (${remaining}s)`;
+  });
+}, 1000);
+// Must comfortably cover the server's RECONNECT_GRACE_MS (90s) — giving up sooner than
+// that means the client abandons a seat the server would still have honored.
+const RECONNECT_GRACE_MS = 90 * 1000;
+const RECONNECT_MAX_ATTEMPTS = 50;
 const RECONNECT_RETRY_DELAY_MS = 2000;
 
 // Session info is persisted so a reconnect attempt can survive not just a dropped socket
@@ -1525,9 +1546,12 @@ function attemptReconnect(attempt){
     toast(t('net.reconnecting') || 'Reconnecting…', 8000);
   }
   socket = null; socketReady = false;
+  showWakingOverlayIfSlow();
   connectSocket().then(() => {
+    hideWakingOverlay();
     sendToServer('reconnect', { roomCode, pid: myId });
   }).catch(() => {
+    hideWakingOverlay();
     if (attempt < RECONNECT_MAX_ATTEMPTS) {
       setTimeout(() => attemptReconnect(attempt + 1), RECONNECT_RETRY_DELAY_MS);
     } else {
@@ -1605,14 +1629,18 @@ function handleServerMessage(msg){
       G.disconnectedPids = newDisconnected;
       newDisconnected.forEach(pid => {
         if (!prevDisconnected.includes(pid)) {
+          disconnectStartTimes[pid] = Date.now();
           const p = G.players.find(pl => pl.id === pid);
           if (p) toast(t('net.playerDisconnected', { name: p.name, jméno: p.name }), 4000);
         }
       });
       prevDisconnected.forEach(pid => {
-        if (!newDisconnected.includes(pid) && pid !== msg.removedPid) {
-          const p = G.players.find(pl => pl.id === pid);
-          if (p && !p.out) toast(t('net.playerReconnected', { name: p.name, jméno: p.name }), 3000);
+        if (!newDisconnected.includes(pid)) {
+          delete disconnectStartTimes[pid];
+          if (pid !== msg.removedPid) {
+            const p = G.players.find(pl => pl.id === pid);
+            if (p && !p.out) toast(t('net.playerReconnected', { name: p.name, jméno: p.name }), 3000);
+          }
         }
       });
       if (msg.removedPid) {
@@ -1881,7 +1909,7 @@ function applyServerState(publicState, lastResult, actorPid){
       sideEffectAnimMs = totalCards * 200 + 700; // stagger interval + last card's flight time
     }
     const showScoreboard = function(){
-      showRoundEnd(scores, protectedLosers.length ? protectedLosers : losers);
+      showRoundEnd(scores, protectedLosers.length ? protectedLosers : losers, result.disconnectedPid || null);
     };
     const preDelay = cardWasPlayed ? ROUND_END_ANIMATION_DELAY : 0;
     const afterBurnOrDelay = function(){
@@ -2890,7 +2918,7 @@ function showRoundTieReplay(){
   overlay.classList.remove('hidden');
   render();
 }
-function showRoundEnd(scores, losers){
+function showRoundEnd(scores, losers, disconnectedPid){
   const overlay=document.getElementById('roundEndOverlay');
   const title=document.getElementById('roundEndTitle');
   const rows=document.getElementById('scoreRows');
@@ -2898,6 +2926,31 @@ function showRoundEnd(scores, losers){
   const winnerPid=G.roundWinnerPid; // only set when the round ended via a Queen (not a burn)
   const winnerScore=winnerPid?scores.find(s=>s.p.id===winnerPid):null;
   const endedBadge=' <span style="font-family:Cinzel,serif;font-size:9px;letter-spacing:1px;color:var(--gold);border:1px solid rgba(201,168,76,0.4);padding:1px 5px;border-radius:3px;margin-left:4px;">'+t('ui.endedRoundBadge')+'</span>';
+
+  // The round was cut short by a disconnect-timeout elimination rather than reaching a
+  // natural end — say so plainly instead of framing it as a normal "highest score loses"
+  // outcome, since the other players' hands/points here are just a mid-round snapshot.
+  if(disconnectedPid){
+    const dp=scores.find(s=>s.p.id===disconnectedPid);
+    const dpName=dp?dp.p.name:'';
+    title.textContent=t('roundend.disconnectTitle',{round:G.round, name:dpName, jméno:dpName}) || `${dpName} disconnected and was eliminated`;
+    rows.innerHTML=scores.map(s=>{
+      const isDp=s.p.id===disconnectedPid;
+      const liveDots=s.p.out
+        ? '<span style="font-family:Cinzel,serif;font-size:10px;letter-spacing:1px;color:#e05555;">'+t('ui.eliminatedBadge')+'</span>'
+        : Array.from({length:G.startLives},(_,i)=>`<span class="life-dot${i>=s.p.lives?' lost':''}">${i>=s.p.lives?'♡':'♥'}</span>`).join('');
+      return `<div class="score-row ${isDp?'loser':''}">
+        <div>
+          <div>${s.p.name} ${liveDots}</div>
+          <div class="score-hand">${isDp?t('roundend.disconnectedLabel')||'Disconnected':''}</div>
+        </div>
+      </div>`;
+    }).join('');
+    document.getElementById('nextRoundBtn').style.display='block';
+    overlay.classList.remove('hidden');
+    render();
+    return;
+  }
 
   // Special compact display: only 2 players remain and the round ended via Queen —
   // points aren't meaningful here, just show who ended it and who lost a life.
@@ -3242,7 +3295,7 @@ function renderOpponents(){
     const isDisconnected=G.disconnectedPids&&G.disconnectedPids.includes(p.id);
     return `<div class="opponent-slot${isCur?' current':''}">
       <div class="opponent-name">
-        ${p.name}${isDisconnected?` <span class="disconnected-badge">${t('net.disconnectedBadge')}</span>`:''}
+        ${p.name}${isDisconnected?` <span class="disconnected-badge" data-pid="${p.id}">${t('net.disconnectedBadge')}<span class="disc-countdown"></span></span>`:''}
       </div>
       <div class="opponent-cards">${miniCards}</div>
       <div class="opponent-lives">${dots}</div>
