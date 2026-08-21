@@ -61,7 +61,7 @@ wss.on('close', () => clearInterval(heartbeatTimer));
 const rooms = new Map();
 
 function genRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I ambiguity
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // letters only, no 0/O/1/I ambiguity
   let code;
   do {
     code = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
