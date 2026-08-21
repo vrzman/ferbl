@@ -1426,6 +1426,7 @@ let isHost = false;
 // attempt. Set this to true immediately before any deliberate socket.close() call.
 let intentionalDisconnect = false;
 let reconnecting = false;
+let reconnectAttemptNum = 1;
 // pid -> Date.now() when we first saw them listed as disconnected, purely for rendering
 // a local countdown alongside the "disconnected" badge — the server is the actual
 // authority on when the grace period expires.
@@ -1541,6 +1542,7 @@ function hideWakingOverlay(){
 // server's reconnect grace window, retrying a few times with backoff before giving up.
 function attemptReconnect(attempt){
   attempt = attempt || 1;
+  reconnectAttemptNum = attempt;
   if (!reconnecting) {
     reconnecting = true;
     toast(t('net.reconnecting') || 'Reconnecting…', 8000);
@@ -1555,13 +1557,17 @@ function attemptReconnect(attempt){
     if (attempt < RECONNECT_MAX_ATTEMPTS) {
       setTimeout(() => attemptReconnect(attempt + 1), RECONNECT_RETRY_DELAY_MS);
     } else {
-      reconnecting = false;
-      toast(t('net.reconnectGaveUp') || 'Could not reconnect.');
-      clearSession();
-      G = null; myId = null; roomCode = ''; isHost = false;
-      showScreen('lobbyScreen');
+      giveUpReconnecting();
     }
   });
+}
+
+function giveUpReconnecting(){
+  reconnecting = false;
+  toast(t('net.reconnectGaveUp') || 'Could not reconnect.');
+  clearSession();
+  G = null; myId = null; roomCode = ''; isHost = false;
+  showScreen('lobbyScreen');
 }
 
 function sendToServer(type, payload){
@@ -1589,13 +1595,19 @@ function handleServerMessage(msg){
       toast(t('net.reconnected') || 'Reconnected!');
       break;
     case 'reconnectFailed':
-      reconnecting = false;
-      toast(t('net.reconnectFailed') || 'Could not rejoin — the game may have ended.');
-      clearSession();
-      if (socket) { intentionalDisconnect = true; socket.close(); }
-      socket = null; socketReady = false;
-      G = null; myId = null; roomCode = ''; isHost = false;
-      showScreen('lobbyScreen');
+      // The server didn't have us in its disconnected-players list yet — this is the
+      // expected result of a race right after switching tabs: our new socket can reach
+      // the server and ask to reconnect before it's finished processing the OLD socket's
+      // close event (which is what actually registers the reconnect grace period). Retry
+      // within the same overall budget rather than treating this as permanent — a real
+      // "game ended / seat gone" case will just keep failing until the budget runs out.
+      if (reconnectAttemptNum < RECONNECT_MAX_ATTEMPTS) {
+        if (socket) { intentionalDisconnect = true; socket.close(); }
+        socket = null; socketReady = false;
+        setTimeout(() => attemptReconnect(reconnectAttemptNum + 1), RECONNECT_RETRY_DELAY_MS);
+      } else {
+        giveUpReconnecting();
+      }
       break;
     case 'hostLeft':
       intentionalDisconnect = true;
@@ -1623,20 +1635,31 @@ function handleServerMessage(msg){
       }
       break;
     case 'state': {
-      const prevDisconnected = (G && G.disconnectedPids) || [];
-      applyServerState(msg.state, msg.lastResult, msg.actorPid);
+      if (!G) G = {};
+      const prevDisconnected = G.disconnectedPids || [];
       const newDisconnected = msg.disconnectedPids || [];
+      // Must happen BEFORE applyServerState() — it calls render() internally, and if this
+      // is the only render that occurs during the whole grace window (e.g. the disconnect
+      // happened on that player's own turn, so nothing else triggers a broadcast until the
+      // timeout), a stale G.disconnectedPids here means the badge/countdown never appears.
       G.disconnectedPids = newDisconnected;
       newDisconnected.forEach(pid => {
+        if (!prevDisconnected.includes(pid)) disconnectStartTimes[pid] = Date.now();
+      });
+      prevDisconnected.forEach(pid => {
+        if (!newDisconnected.includes(pid)) delete disconnectStartTimes[pid];
+      });
+
+      applyServerState(msg.state, msg.lastResult, msg.actorPid);
+
+      newDisconnected.forEach(pid => {
         if (!prevDisconnected.includes(pid)) {
-          disconnectStartTimes[pid] = Date.now();
           const p = G.players.find(pl => pl.id === pid);
           if (p) toast(t('net.playerDisconnected', { name: p.name, jméno: p.name }), 4000);
         }
       });
       prevDisconnected.forEach(pid => {
         if (!newDisconnected.includes(pid)) {
-          delete disconnectStartTimes[pid];
           if (pid !== msg.removedPid) {
             const p = G.players.find(pl => pl.id === pid);
             if (p && !p.out) toast(t('net.playerReconnected', { name: p.name, jméno: p.name }), 3000);
