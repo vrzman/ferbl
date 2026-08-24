@@ -2057,7 +2057,7 @@ function updateMaxCards(){
 }
 
 function leaveRoom() {
-  if (socket && socketReady) sendToServer('toggleLeave', {});
+  if (socket && socketReady) sendToServer('leaveLobby', {});
   intentionalDisconnect = true;
   if (socket) socket.close();
   socket = null; socketReady = false;

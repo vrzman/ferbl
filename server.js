@@ -165,6 +165,7 @@ function handleMessage(ws, msg) {
   switch (msg.type) {
     case 'createRoom': return onCreateRoom(ws, msg);
     case 'joinRoom': return onJoinRoom(ws, msg);
+    case 'leaveLobby': return onLeaveLobby(ws, msg);
     case 'startGame': return onStartGame(ws, msg);
     case 'action': return onAction(ws, msg);
     case 'toggleLeave': return onToggleLeave(ws, msg);
@@ -213,6 +214,34 @@ function onJoinRoom(ws, msg) {
   ws.pid = pid;
   ws.roomCode = code;
   send(ws, 'joined', { roomCode: code, pid, isHost: false, numPlayers: room.settings.numPlayers });
+  broadcastLobby(room);
+}
+
+// The LEAVE button always follows this up with an actual socket.close() too, but that
+// raw close event isn't guaranteed to reach us right away (connection teardown can lag
+// a few seconds behind the deliberate click that caused it) — sending this message lets
+// us act on the departure immediately instead of waiting on it. ws.pid/ws.roomCode are
+// cleared here so the close handler's normal path is a no-op when that event does arrive,
+// rather than trying to remove an already-removed player a second time.
+function onLeaveLobby(ws, msg) {
+  const room = rooms.get(ws.roomCode);
+  if (!room || room.state) return; // only meaningful pre-game — mid-game leaving uses toggleLeave
+  const pid = ws.pid;
+  const wasHost = pid === room.hostPid;
+  room.players.delete(pid);
+  room.playerNames.delete(pid);
+  ws.pid = null;
+  ws.roomCode = null;
+
+  if (wasHost && room.players.size > 0) {
+    for (const ws2 of room.players.values()) send(ws2, 'hostLeft', {});
+    rooms.delete(room.code);
+    return;
+  }
+  if (room.players.size === 0) {
+    rooms.delete(room.code);
+    return;
+  }
   broadcastLobby(room);
 }
 
