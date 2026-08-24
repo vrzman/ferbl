@@ -784,11 +784,7 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
     </div>
     <button class="btn btn-primary" data-i18n="lobby.createGame" onclick="showCreateGame()">CREATE GAME</button>
     <div class="divider"><span data-i18n="lobby.or">OR</span></div>
-    <button class="btn btn-secondary" data-i18n="lobby.joinGame" onclick="joinGame()">JOIN GAME</button>
-    <div class="input-group">
-      <label class="input-label" data-i18n="lobby.roomCodeLabel">ROOM CODE</label>
-      <input type="text" id="joinCode" placeholder="XXXX" maxlength="4" style="text-transform:uppercase;">
-    </div>
+    <button class="btn btn-primary" data-i18n="lobby.joinGame" onclick="showJoinCode()">JOIN GAME WITH A CODE</button>
   </div>
 
   <!-- Create game settings -->
@@ -812,6 +808,18 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
     </div>
     <button class="btn btn-primary" data-i18n="lobby.createRoom" onclick="createGame()">CREATE ROOM</button>
     <button class="btn btn-secondary" data-i18n="lobby.back" onclick="hideCreateGame()">BACK</button>
+  </div>
+
+  <!-- Join game — enter room code -->
+  <div id="joinSettings" style="display:none; width:100%; max-width:320px;">
+    <div class="panel">
+      <div class="input-group">
+        <label class="input-label" data-i18n="lobby.roomCodeLabel">ROOM CODE</label>
+        <input type="text" id="joinCode" placeholder="XXXX" maxlength="4" style="text-transform:uppercase; letter-spacing:4px; text-align:center;">
+      </div>
+    </div>
+    <button class="btn btn-primary" data-i18n="lobby.joinRoom" onclick="joinGame()">JOIN</button>
+    <button class="btn btn-secondary" data-i18n="lobby.back" onclick="hideJoinCode()">BACK</button>
   </div>
 </div>
 
@@ -1036,11 +1044,12 @@ const STRINGS = {
     'lobby.createGame': 'CREATE GAME',
     'lobby.or': 'OR',
     'lobby.roomCodeLabel': 'ROOM CODE',
-    'lobby.joinGame': 'JOIN GAME',
+    'lobby.joinGame': 'JOIN GAME WITH A CODE',
     'lobby.gameSettings': 'GAME SETTINGS',
     'lobby.numPlayersLabel': 'NUMBER OF PLAYERS',
     'lobby.startCardsLabel': 'STARTING CARDS',
     'lobby.createRoom': 'CREATE ROOM',
+    'lobby.joinRoom': 'JOIN',
     'waiting.subtitle': 'WAITING FOR PLAYERS',
     'waiting.shareCode': 'Share this code with friends',
     'waiting.playersLabel': 'PLAYERS',
@@ -1179,11 +1188,12 @@ const STRINGS = {
     'lobby.createGame': 'Vytvořit hru',
     'lobby.or': 'Nebo',
     'lobby.roomCodeLabel': 'Kód hry',
-    'lobby.joinGame': 'Připojit do hry',
+    'lobby.joinGame': 'Připojit se pomocí kódu',
     'lobby.gameSettings': 'Nastavení',
     'lobby.numPlayersLabel': 'Počet hráčů',
     'lobby.startCardsLabel': 'Počáteční počet karet',
     'lobby.createRoom': 'Vytvořit hru',
+    'lobby.joinRoom': 'Připojit se',
     'waiting.subtitle': 'Čeká se na hráče',
     'waiting.shareCode': 'Sdílej kód se spoluhráči',
     'waiting.playersLabel': 'Hráči',
@@ -2004,6 +2014,14 @@ function showCreateGame() {
 function hideCreateGame() {
   document.getElementById('lobbyMain').style.display = 'block';
   document.getElementById('createSettings').style.display = 'none';
+}
+function showJoinCode() {
+  document.getElementById('lobbyMain').style.display = 'none';
+  document.getElementById('joinSettings').style.display = 'block';
+}
+function hideJoinCode() {
+  document.getElementById('lobbyMain').style.display = 'block';
+  document.getElementById('joinSettings').style.display = 'none';
 }
 
 async function createGame() {
