@@ -1488,18 +1488,28 @@ const pendingSocketSends = [];
 function connectSocket(){
   return new Promise((resolve, reject) => {
     if (socket && socketReady) { resolve(); return; }
+    let ws;
     try {
-      socket = new WebSocket(SERVER_URL);
+      ws = new WebSocket(SERVER_URL);
     } catch (e) {
       reject(e); return;
     }
-    socket.onopen = () => {
+    socket = ws;
+    ws.onopen = () => {
+      if (ws !== socket) return; // superseded by a newer connection attempt — ignore
       socketReady = true;
-      while (pendingSocketSends.length) socket.send(pendingSocketSends.shift());
+      while (pendingSocketSends.length) ws.send(pendingSocketSends.shift());
       resolve();
     };
-    socket.onerror = () => { reject(new Error('Could not connect to server')); };
-    socket.onclose = () => {
+    ws.onerror = () => {
+      if (ws !== socket) return;
+      reject(new Error('Could not connect to server'));
+    };
+    ws.onclose = () => {
+      // A stale/abandoned socket (e.g. left over from an earlier reconnect attempt)
+      // closing after the fact must never act on whatever session is current now — only
+      // the socket we're actually still using gets to trigger a reconnect or a toast.
+      if (ws !== socket) return;
       socketReady = false;
       if (intentionalDisconnect) { intentionalDisconnect = false; return; }
       if (G && G.phase && G.phase !== 'GAME_OVER' && roomCode && myId) {
@@ -1508,7 +1518,8 @@ function connectSocket(){
         toast(t('net.disconnected') || 'Connection lost');
       }
     };
-    socket.onmessage = (ev) => {
+    ws.onmessage = (ev) => {
+      if (ws !== socket) return;
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       handleServerMessage(msg);
@@ -1547,6 +1558,7 @@ function attemptReconnect(attempt){
     reconnecting = true;
     toast(t('net.reconnecting') || 'Reconnecting…', 8000);
   }
+  if (socket) { try { socket.close(); } catch (e) {} }
   socket = null; socketReady = false;
   showWakingOverlayIfSlow();
   connectSocket().then(() => {
