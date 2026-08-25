@@ -81,14 +81,15 @@ function send(ws, type, payload) {
 
 function broadcastState(room, extra) {
   const actorPid = extra && extra.actorPid;
+  const leavingAfterRoundPids = [...room.leavingAfterRound];
   for (const [pid, ws] of room.players) {
-    let payload = extra;
+    let payload = { ...extra, leavingAfterRoundPids };
     // Card identities in lastResult.drew must stay private to the player who drew them —
     // game.js returns them for the actor's own UI, but broadcastState fans the same result
     // out to every socket in the room, so without this an opponent's client would receive
     // (and could inspect) the exact rank/suit of cards it has no right to see.
     if (extra && extra.lastResult && extra.lastResult.drew && extra.lastResult.drew.length && pid !== actorPid) {
-      payload = { ...extra, lastResult: { ...extra.lastResult, drew: extra.lastResult.drew.map(() => null) } };
+      payload = { ...payload, lastResult: { ...extra.lastResult, drew: extra.lastResult.drew.map(() => null) } };
     }
     send(ws, 'state', { state: G.getPublicState(room.state, pid), ...payload });
   }
@@ -435,6 +436,7 @@ function onToggleLeave(ws, msg) {
   if (room.leavingAfterRound.has(ws.pid)) room.leavingAfterRound.delete(ws.pid);
   else room.leavingAfterRound.add(ws.pid);
   send(ws, 'leaveToggled', { leaving: room.leavingAfterRound.has(ws.pid) });
+  broadcastState(room, {});
 }
 
 function onNextRound(ws, msg) {

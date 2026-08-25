@@ -210,6 +210,54 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 .life-dot { font-size: 10px; line-height: 1; color: var(--hearts); }
 .life-dot.lost { color: rgba(255,255,255,0.15); }
 
+/* With more players sharing the same top strip, names/hands get tight — scale down
+   progressively and reserve room so the round-number badge in the corner doesn't sit on
+   top of the nearest opponent's name. */
+#gameScreen[data-players="4"] #opponents,
+#gameScreen[data-players="5"] #opponents,
+#gameScreen[data-players="6"] #opponents {
+  padding-right: 42px;
+}
+#gameScreen[data-players="4"] .opponent-slot,
+#gameScreen[data-players="5"] .opponent-slot,
+#gameScreen[data-players="6"] .opponent-slot {
+  min-width: 46px;
+  gap: 2px;
+}
+#gameScreen[data-players="4"] .opponent-name,
+#gameScreen[data-players="5"] .opponent-name,
+#gameScreen[data-players="6"] .opponent-name {
+  font-size: 8px;
+  max-width: 58px;
+}
+#gameScreen[data-players="4"] .card-mini,
+#gameScreen[data-players="5"] .card-mini,
+#gameScreen[data-players="6"] .card-mini {
+  width: 15px;
+  height: 23px;
+  margin-left: -7px;
+  border-radius: 2px;
+}
+#gameScreen[data-players="5"] .card-mini,
+#gameScreen[data-players="6"] .card-mini {
+  width: 12px;
+  height: 19px;
+  margin-left: -8px;
+}
+#gameScreen[data-players="4"] .card-mini:first-child,
+#gameScreen[data-players="5"] .card-mini:first-child,
+#gameScreen[data-players="6"] .card-mini:first-child {
+  margin-left: 0;
+}
+#gameScreen[data-players="4"] #roundInfo,
+#gameScreen[data-players="5"] #roundInfo,
+#gameScreen[data-players="6"] #roundInfo {
+  font-size: 8px;
+  letter-spacing: 1px;
+  top: 6px;
+  right: 6px;
+}
+
 /* ── Play area (center) ── */
 #playArea {
   display: flex;
@@ -1165,6 +1213,7 @@ const STRINGS = {
     'roundend.disconnectedLabel': 'Disconnected',
     'ui.endedRoundBadge': 'ENDED ROUND',
     'ui.eliminatedBadge': 'ELIMINATED',
+    'ui.leavingBadge': 'LEAVING',
     'game.deckLeft': '{n} left',
     'game.ptsSuffix': '{n} pts',
     'ui.ghostDealLabel': 'GHOST DEAL',
@@ -1309,6 +1358,7 @@ const STRINGS = {
     'roundend.disconnectedLabel': 'Odpojen/a',
     'ui.endedRoundBadge': 'Zavřel/a',
     'ui.eliminatedBadge': 'Vyřazen/a',
+    'ui.leavingBadge': 'Odchází',
     'game.deckLeft': 'Zbývá {n}',
     'game.ptsSuffix': '{n} bodů',
     'ui.ghostDealLabel': 'Rozdáváš naposledy',
@@ -1671,6 +1721,10 @@ function handleServerMessage(msg){
       prevDisconnected.forEach(pid => {
         if (!newDisconnected.includes(pid)) delete disconnectStartTimes[pid];
       });
+      if (msg.leavingAfterRoundPids) {
+        leavingAfterRound = {};
+        msg.leavingAfterRoundPids.forEach(pid => { leavingAfterRound[pid] = true; });
+      }
 
       applyServerState(msg.state, msg.lastResult, msg.actorPid);
 
@@ -2979,6 +3033,9 @@ function showRoundEnd(scores, losers, disconnectedPid){
   const winnerPid=G.roundWinnerPid; // only set when the round ended via a Queen (not a burn)
   const winnerScore=winnerPid?scores.find(s=>s.p.id===winnerPid):null;
   const endedBadge=' <span style="font-family:Cinzel,serif;font-size:9px;letter-spacing:1px;color:var(--gold);border:1px solid rgba(201,168,76,0.4);padding:1px 5px;border-radius:3px;margin-left:4px;">'+t('ui.endedRoundBadge')+'</span>';
+  const leavingBadge=pid=>leavingAfterRound[pid]
+    ? ' <span style="font-family:Cinzel,serif;font-size:9px;letter-spacing:1px;color:#f0c060;border:1px solid rgba(224,180,85,0.5);padding:1px 5px;border-radius:3px;margin-left:4px;">'+(t('ui.leavingBadge')||'LEAVING')+'</span>'
+    : '';
 
   // The round was cut short by a disconnect-timeout elimination rather than reaching a
   // natural end — say so plainly instead of framing it as a normal "highest score loses"
@@ -2994,7 +3051,7 @@ function showRoundEnd(scores, losers, disconnectedPid){
         : Array.from({length:G.startLives},(_,i)=>`<span class="life-dot${i>=s.p.lives?' lost':''}">${i>=s.p.lives?'♡':'♥'}</span>`).join('');
       return `<div class="score-row ${isDp?'loser':''}">
         <div>
-          <div>${s.p.name} ${liveDots}</div>
+          <div>${s.p.name}${leavingBadge(s.p.id)} ${liveDots}</div>
           <div class="score-hand">${isDp?t('roundend.disconnectedLabel')||'Disconnected':''}</div>
         </div>
       </div>`;
@@ -3018,10 +3075,10 @@ function showRoundEnd(scores, losers, disconnectedPid){
       : Array.from({length:G.startLives},(_,i)=>`<span class="life-dot${i>=loserScore.p.lives?' lost':''}">${i>=loserScore.p.lives?'♡':'♥'}</span>`).join('');
     rows.innerHTML=`
       <div class="score-row winner">
-        <div><div>${winnerScore.p.name}${endedBadge} ${winnerDots}</div></div>
+        <div><div>${winnerScore.p.name}${endedBadge}${leavingBadge(winnerScore.p.id)} ${winnerDots}</div></div>
       </div>
       <div class="score-row loser">
-        <div><div>${loserScore.p.name} ${loserDots}</div><div class="score-hand">${t('roundend.losesLife')}</div></div>
+        <div><div>${loserScore.p.name}${leavingBadge(loserScore.p.id)} ${loserDots}</div><div class="score-hand">${t('roundend.losesLife')}</div></div>
       </div>`;
     document.getElementById('nextRoundBtn').style.display='block';
     overlay.classList.remove('hidden');
@@ -3039,7 +3096,7 @@ function showRoundEnd(scores, losers, disconnectedPid){
       : Array.from({length:G.startLives},(_,i)=>`<span class="life-dot${i>=s.p.lives?' lost':''}">${i>=s.p.lives?'♡':'♥'}</span>`).join('');
     return `<div class="score-row ${isL?'loser':''} ${isWinnerRow?'winner':''}">
       <div>
-        <div>${s.p.name}${isWinnerRow?endedBadge:''} ${liveDots}</div>
+        <div>${s.p.name}${isWinnerRow?endedBadge:''}${leavingBadge(s.p.id)} ${liveDots}</div>
         <div class="score-hand">${handStr||'—'}</div>
       </div>
       <div style="font-family:'Cinzel',serif; font-size:18px;">${t('game.ptsSuffix',{n:s.pts})}</div>
@@ -3101,6 +3158,7 @@ function render(){
 
   // Round number
   document.getElementById('roundNum').textContent=G.round;
+  document.getElementById('gameScreen').setAttribute('data-players', G.players.length);
   const daSvg=document.getElementById('dirArrowSvg');
   const dirInd=document.getElementById('dirIndicator');
   if(daSvg&&dirInd){
