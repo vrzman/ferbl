@@ -39,7 +39,7 @@ httpServer.listen(PORT);
 
 // How long a mid-game disconnect (e.g. a backgrounded mobile tab killing the socket) gets
 // before it's treated as a permanent departure and the player is removed from the round.
-const RECONNECT_GRACE_MS = 90 * 1000;
+const RECONNECT_GRACE_MS = 30 * 1000;
 
 // Standard ws heartbeat: ping every connection periodically and terminate any that don't
 // respond. This does two things — (1) detects genuinely dead connections faster than

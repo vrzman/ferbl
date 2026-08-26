@@ -199,6 +199,12 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   letter-spacing: 1px;
   color: var(--gold-dark);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.opponent-name-text {
   max-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -228,6 +234,10 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 #gameScreen[data-players="5"] .opponent-name,
 #gameScreen[data-players="6"] .opponent-name {
   font-size: 8px;
+}
+#gameScreen[data-players="4"] .opponent-name-text,
+#gameScreen[data-players="5"] .opponent-name-text,
+#gameScreen[data-players="6"] .opponent-name-text {
   max-width: 58px;
 }
 #gameScreen[data-players="4"] .card-mini,
@@ -1501,10 +1511,10 @@ setInterval(() => {
     countdownEl.textContent = ` (${remaining}s)`;
   });
 }, 1000);
-// Must comfortably cover the server's RECONNECT_GRACE_MS (90s) — giving up sooner than
+// Must comfortably cover the server's RECONNECT_GRACE_MS (30s) — giving up sooner than
 // that means the client abandons a seat the server would still have honored.
-const RECONNECT_GRACE_MS = 90 * 1000;
-const RECONNECT_MAX_ATTEMPTS = 50;
+const RECONNECT_GRACE_MS = 30 * 1000;
+const RECONNECT_MAX_ATTEMPTS = 20;
 const RECONNECT_RETRY_DELAY_MS = 2000;
 
 // Session info is persisted so a reconnect attempt can survive not just a dropped socket
@@ -1665,6 +1675,14 @@ function handleServerMessage(msg){
       reconnecting = false;
       saveSession();
       toast(t('net.reconnected') || 'Reconnected!');
+      // state.lastHcd is ordinary persisted game state (so already-connected clients can
+      // dedupe against it) — it isn't cleared just because we reconnected. Our own dedupe
+      // memory (lastShownHcdSignature), though, resets to blank on every fresh page load.
+      // Without this, a reconnecting player would see whatever draw is currently sitting
+      // in state (even one from several rounds ago) as "new", replay that overlay, and get
+      // stuck forever acking it — nobody else has any reason to ack an overlay they can't
+      // see. The very next 'state' message tells us what's actually current.
+      skipNextHcdReplay = true;
       break;
     case 'reconnectFailed':
       // The server didn't have us in its disconnected-players list yet — this is the
@@ -1798,6 +1816,8 @@ function serverHcdToOverlayData(hcd, players){
   };
 }
 let lastShownHcdSignature = null;
+// Set on reconnect — see the 'reconnected' handler for why.
+let skipNextHcdReplay = false;
 
 function applyServerState(publicState, lastResult, actorPid){
   if (!G) G = {};
@@ -2033,7 +2053,10 @@ function applyServerState(publicState, lastResult, actorPid){
   // the initial dealer draw at round 1 and any later tied-loser / tied-ghost-dealer draws
   // (state.lastHcd persists on the server between rounds, so we dedupe on content rather
   // than gating on round === 1, which only ever caught the very first draw).
-  if (G.lastHcd) {
+  if (skipNextHcdReplay) {
+    skipNextHcdReplay = false;
+    if (G.lastHcd) lastShownHcdSignature = JSON.stringify(G.lastHcd);
+  } else if (G.lastHcd) {
     const sig = JSON.stringify(G.lastHcd);
     if (sig !== lastShownHcdSignature) {
       lastShownHcdSignature = sig;
@@ -3406,7 +3429,7 @@ function renderOpponents(){
     const isDisconnected=G.disconnectedPids&&G.disconnectedPids.includes(p.id);
     return `<div class="opponent-slot${isCur?' current':''}">
       <div class="opponent-name">
-        ${p.name}${isDisconnected?` <span class="disconnected-badge" data-pid="${p.id}">${t('net.disconnectedBadge')}<span class="disc-countdown"></span></span>`:''}
+        <span class="opponent-name-text">${p.name}</span>${isDisconnected?`<span class="disconnected-badge" data-pid="${p.id}">${t('net.disconnectedBadge')}<span class="disc-countdown"></span></span>`:''}
       </div>
       <div class="opponent-cards">${miniCards}</div>
       <div class="opponent-lives">${dots}</div>
