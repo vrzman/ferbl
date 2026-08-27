@@ -1667,6 +1667,18 @@ function giveUpReconnecting(){
   showScreen('lobbyScreen');
 }
 
+// A manual Create/Join always takes priority over a passive, automatic reconnect attempt
+// (e.g. one attemptSessionResume() kicked off from stale leftover session data in this
+// browser tab). Without this, that background loop keeps running regardless — periodically
+// closing/reopening the shared `socket` as it retries — and can stomp on a freshly-joined
+// game later (including via giveUpReconnecting(), which would wipe the new session's G/
+// myId/roomCode out from under the player, right as they thought they'd joined fine).
+function cancelReconnectAttempts(){
+  reconnectGen++; // any in-flight or scheduled retry will see this mismatch and no-op
+  reconnecting = false;
+  hideWakingOverlay();
+}
+
 function sendToServer(type, payload){
   const data = JSON.stringify({ type, ...payload });
   if (socket && socketReady) socket.send(data);
@@ -1684,6 +1696,7 @@ function handleServerMessage(msg){
       showWaitingRoom([], null, msg.numPlayers);
       break;
     case 'reconnected':
+      if (!reconnecting) break; // stale — a manual create/join has since taken over
       myId = msg.pid;
       roomCode = msg.roomCode;
       isHost = !!msg.isHost;
@@ -2120,6 +2133,7 @@ function hideJoinCode() {
 }
 
 async function createGame() {
+  cancelReconnectAttempts();
   myName = document.getElementById('playerName').value.trim() || 'Player';
   const numPlayers = parseInt(document.getElementById('numPlayers').value);
   const startCards = parseInt(document.getElementById('startCards').value);
@@ -2136,6 +2150,7 @@ async function createGame() {
 }
 
 async function joinGame() {
+  cancelReconnectAttempts();
   myName = document.getElementById('playerName').value.trim() || 'Player';
   const code = document.getElementById('joinCode').value.toUpperCase();
   if (code.length !== 4) { toast('Enter a 4-letter room code'); return; }
