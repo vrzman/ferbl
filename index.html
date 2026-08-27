@@ -1631,25 +1631,26 @@ function hideWakingOverlay(){
 // real despite having reconnected in time.
 let reconnectGen = 0;
 let reconnectInFlightGen = 0;
-function attemptReconnect(attempt, gen){
-  if (attempt === undefined || attempt === 1) gen = ++reconnectGen; // fresh top-level trigger
+let reconnectSilent = false;
+function attemptReconnect(attempt, gen, silent){
+  if (attempt === undefined || attempt === 1) { gen = ++reconnectGen; reconnectSilent = !!silent; } // fresh top-level trigger
   if (gen !== reconnectGen) return; // superseded by a newer or already-completed cycle
   attempt = attempt || 1;
   reconnectAttemptNum = attempt;
   reconnectInFlightGen = gen;
   if (!reconnecting) {
     reconnecting = true;
-    toast(t('net.reconnecting') || 'Reconnecting…', 8000);
+    if (!reconnectSilent) toast(t('net.reconnecting') || 'Reconnecting…', 8000);
   }
   if (socket) { try { socket.close(); } catch (e) {} }
   socket = null; socketReady = false;
-  showWakingOverlayIfSlow();
+  if (!reconnectSilent) showWakingOverlayIfSlow();
   connectSocket().then(() => {
-    hideWakingOverlay();
+    if (!reconnectSilent) hideWakingOverlay();
     if (gen !== reconnectGen) return;
     sendToServer('reconnect', { roomCode, pid: myId });
   }).catch(() => {
-    hideWakingOverlay();
+    if (!reconnectSilent) hideWakingOverlay();
     if (gen !== reconnectGen) return;
     if (attempt < RECONNECT_MAX_ATTEMPTS) {
       setTimeout(() => attemptReconnect(attempt + 1, gen), RECONNECT_RETRY_DELAY_MS);
@@ -1661,7 +1662,7 @@ function attemptReconnect(attempt, gen){
 
 function giveUpReconnecting(){
   reconnecting = false;
-  toast(t('net.reconnectGaveUp') || 'Could not reconnect.');
+  if (!reconnectSilent) toast(t('net.reconnectGaveUp') || 'Could not reconnect.');
   clearSession();
   G = null; myId = null; roomCode = ''; isHost = false;
   showScreen('lobbyScreen');
@@ -3832,7 +3833,7 @@ document.getElementById('playerName').focus();
   myId = session.pid;
   roomCode = session.roomCode;
   myName = session.name || '';
-  attemptReconnect();
+  attemptReconnect(undefined, undefined, true);
 })();
 
 </script>
