@@ -53,7 +53,7 @@ const heartbeatTimer = setInterval(() => {
     ws.isAlive = false;
     ws.ping();
   });
-}, 25 * 1000);
+}, 8 * 1000);
 wss.on('close', () => clearInterval(heartbeatTimer));
 
 // room code -> { state, players: Map(pid -> ws), playerNames: Map(pid -> name),

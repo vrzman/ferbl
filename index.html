@@ -1621,9 +1621,22 @@ function hideWakingOverlay(){
 // Fired on an unexpected socket close mid-game (tab backgrounded, brief network drop,
 // etc.) — tries to open a fresh connection and reattach to the same seat via the
 // server's reconnect grace window, retrying a few times with backoff before giving up.
-function attemptReconnect(attempt){
+//
+// reconnectGen guards against a real failure mode: a retry gets scheduled (e.g. after a
+// connection error, or a 'reconnectFailed' race), but by the time its timer fires, an
+// EARLIER attempt has already reconnected successfully. Without this guard, that stale
+// retry would still run — unconditionally closing the now-good socket and opening a new
+// one — which can cascade into a churn of repeated disconnect/reconnect cycles, each
+// restarting the server's grace timer, until the retry budget or the timer runs out for
+// real despite having reconnected in time.
+let reconnectGen = 0;
+let reconnectInFlightGen = 0;
+function attemptReconnect(attempt, gen){
+  if (attempt === undefined || attempt === 1) gen = ++reconnectGen; // fresh top-level trigger
+  if (gen !== reconnectGen) return; // superseded by a newer or already-completed cycle
   attempt = attempt || 1;
   reconnectAttemptNum = attempt;
+  reconnectInFlightGen = gen;
   if (!reconnecting) {
     reconnecting = true;
     toast(t('net.reconnecting') || 'Reconnecting…', 8000);
@@ -1633,11 +1646,13 @@ function attemptReconnect(attempt){
   showWakingOverlayIfSlow();
   connectSocket().then(() => {
     hideWakingOverlay();
+    if (gen !== reconnectGen) return;
     sendToServer('reconnect', { roomCode, pid: myId });
   }).catch(() => {
     hideWakingOverlay();
+    if (gen !== reconnectGen) return;
     if (attempt < RECONNECT_MAX_ATTEMPTS) {
-      setTimeout(() => attemptReconnect(attempt + 1), RECONNECT_RETRY_DELAY_MS);
+      setTimeout(() => attemptReconnect(attempt + 1, gen), RECONNECT_RETRY_DELAY_MS);
     } else {
       giveUpReconnecting();
     }
@@ -1673,6 +1688,7 @@ function handleServerMessage(msg){
       roomCode = msg.roomCode;
       isHost = !!msg.isHost;
       reconnecting = false;
+      reconnectGen++; // invalidate any stale retry still scheduled from before this success
       saveSession();
       toast(t('net.reconnected') || 'Reconnected!');
       // state.lastHcd is ordinary persisted game state (so already-connected clients can
@@ -1683,6 +1699,7 @@ function handleServerMessage(msg){
       // stuck forever acking it — nobody else has any reason to ack an overlay they can't
       // see. The very next 'state' message tells us what's actually current.
       skipNextHcdReplay = true;
+      showScreen('gameScreen');
       break;
     case 'reconnectFailed':
       // The server didn't have us in its disconnected-players list yet — this is the
@@ -1691,10 +1708,11 @@ function handleServerMessage(msg){
       // close event (which is what actually registers the reconnect grace period). Retry
       // within the same overall budget rather than treating this as permanent — a real
       // "game ended / seat gone" case will just keep failing until the budget runs out.
+      if (reconnectInFlightGen !== reconnectGen) break; // stale — superseded already
       if (reconnectAttemptNum < RECONNECT_MAX_ATTEMPTS) {
         if (socket) { intentionalDisconnect = true; socket.close(); }
         socket = null; socketReady = false;
-        setTimeout(() => attemptReconnect(reconnectAttemptNum + 1), RECONNECT_RETRY_DELAY_MS);
+        setTimeout(() => attemptReconnect(reconnectAttemptNum + 1, reconnectGen), RECONNECT_RETRY_DELAY_MS);
       } else {
         giveUpReconnecting();
       }
