@@ -1640,17 +1640,23 @@ function attemptReconnect(attempt, gen, silent){
   reconnectInFlightGen = gen;
   if (!reconnecting) {
     reconnecting = true;
-    if (!reconnectSilent) toast(t('net.reconnecting') || 'Reconnecting…', 8000);
+    toast(t('net.reconnecting') || 'Reconnecting…', 8000);
   }
   if (socket) { try { socket.close(); } catch (e) {} }
   socket = null; socketReady = false;
+  // "Silent" only ever means: don't show the blocking full-screen waking overlay (used for
+  // the automatic page-load session-resume attempt, so it can't prevent someone who just
+  // wants to start a fresh game from clicking Create/Join). The toast above always shows —
+  // if this attempt is actually reconnecting to a game the person just got disconnected
+  // from, they should see *something* happening rather than silence that looks like nothing
+  // is being tried at all.
   if (!reconnectSilent) showWakingOverlayIfSlow();
   connectSocket().then(() => {
-    if (!reconnectSilent) hideWakingOverlay();
+    hideWakingOverlay();
     if (gen !== reconnectGen) return;
     sendToServer('reconnect', { roomCode, pid: myId });
   }).catch(() => {
-    if (!reconnectSilent) hideWakingOverlay();
+    hideWakingOverlay();
     if (gen !== reconnectGen) return;
     if (attempt < RECONNECT_MAX_ATTEMPTS) {
       setTimeout(() => attemptReconnect(attempt + 1, gen), RECONNECT_RETRY_DELAY_MS);
@@ -1662,7 +1668,7 @@ function attemptReconnect(attempt, gen, silent){
 
 function giveUpReconnecting(){
   reconnecting = false;
-  if (!reconnectSilent) toast(t('net.reconnectGaveUp') || 'Could not reconnect.');
+  toast(t('net.reconnectGaveUp') || 'Could not reconnect.');
   clearSession();
   G = null; myId = null; roomCode = ''; isHost = false;
   showScreen('lobbyScreen');
