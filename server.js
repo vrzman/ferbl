@@ -341,18 +341,35 @@ function onReconnect(ws, msg) {
   const code = (msg.roomCode || '').toUpperCase();
   const room = rooms.get(code);
   const pid = msg.pid;
-  if (!room || !pid || !room.disconnected.has(pid)) {
-    send(ws, 'reconnectFailed', {});
-    return;
+  if (!room || !pid) { send(ws, 'reconnectFailed', {}); return; }
+  const player = room.state && room.state.players.find(p => p.id === pid);
+  if (!player || player.out) { send(ws, 'reconnectFailed', {}); return; }
+
+  // Clear any pending disconnect-timeout bookkeeping, if it exists — it may well not:
+  // this reconnect can legitimately arrive before the OLD socket's own close event has
+  // even been processed by the server yet (a common race — a fresh connection often
+  // reaches us faster than the old one's teardown does). That's fine; we don't need
+  // room.disconnected to already know about this pid in order to let them back in, only
+  // to confirm they're still a real, active seat in this game.
+  if (room.disconnected.has(pid)) {
+    clearTimeout(room.disconnected.get(pid).timer);
+    room.disconnected.delete(pid);
   }
-  const entry = room.disconnected.get(pid);
-  clearTimeout(entry.timer);
-  room.disconnected.delete(pid);
+
+  // If the previous connection for this pid is still technically open (the race above),
+  // strip its identity before terminating it — otherwise its belated 'close' event would
+  // still see this roomCode/pid and act on the seat we're about to reassign below.
+  const oldWs = room.players.get(pid);
+  if (oldWs && oldWs !== ws) {
+    oldWs.pid = null; oldWs.roomCode = null;
+    try { oldWs.terminate(); } catch (e) {}
+  }
+
   ws.pid = pid;
   ws.roomCode = code;
   ws.isAlive = true;
   room.players.set(pid, ws);
-  room.state.log.push(`${entry.name} reconnected.`);
+  room.state.log.push(`${player.name} reconnected.`);
   send(ws, 'reconnected', {
     roomCode: code, pid,
     isHost: pid === room.hostPid,
