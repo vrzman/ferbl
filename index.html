@@ -881,6 +881,21 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   </div>
 </div>
 
+<!-- ══ DISCONNECTED / REJOIN SCREEN ══ -->
+<div id="rejoinScreen" class="screen hidden">
+  <div class="logo" style="font-size:32px;">FERBL</div>
+  <div class="panel" style="max-width:320px; text-align:center;">
+    <div class="panel-title" data-i18n="net.rejoinTitle">DISCONNECTED</div>
+    <div style="margin:14px 0 4px; font-family:'Cinzel',serif; font-size:12px; letter-spacing:1px; color:var(--cream-dark);">
+      <span data-i18n="net.rejoinRoomLabel">Room</span>
+    </div>
+    <div class="room-code" id="rejoinRoomCode" style="margin-bottom:14px;">????</div>
+    <div id="rejoinStatus" style="min-height:18px; margin-bottom:16px; font-size:12px; color:var(--cream); opacity:0.85;"></div>
+  </div>
+  <button id="rejoinBtn" class="btn btn-primary" data-i18n="net.rejoinBtn" onclick="attemptRejoin()">REJOIN</button>
+  <button class="btn btn-secondary" data-i18n="net.backToLobby" onclick="giveUpAndReturnToLobby()">BACK TO LOBBY</button>
+</div>
+
 <!-- ══ WAITING ROOM SCREEN ══ -->
 <div id="waitingScreen" class="screen hidden">
   <div class="logo" style="font-size:36px;">FERBL</div>
@@ -1117,10 +1132,14 @@ const STRINGS = {
     'waiting.emptySlot': 'Waiting...',
     'waiting.hostLeft': 'Host left — room closed',
     'net.disconnected': 'Connection lost',
-    'net.reconnecting': 'Reconnecting…',
     'net.reconnected': 'Reconnected!',
-    'net.reconnectFailed': 'Could not rejoin — the game may have ended.',
-    'net.reconnectGaveUp': 'Could not reconnect.',
+    'net.rejoinTitle': 'DISCONNECTED',
+    'net.rejoinRoomLabel': 'Room',
+    'net.rejoinBtn': 'REJOIN',
+    'net.backToLobby': 'BACK TO LOBBY',
+    'net.disconnectedTryingToRejoin': 'Trying to rejoin automatically…',
+    'net.rejoining': 'Rejoining…',
+    'net.rejoinFailed': 'Could not rejoin — tap REJOIN to try again.',
     'net.playerDisconnected': '{name} disconnected — waiting to reconnect…',
     'net.playerReconnected': '{name} reconnected!',
     'net.playerRemoved': '{name} could not reconnect and was removed.',
@@ -1262,10 +1281,14 @@ const STRINGS = {
     'waiting.emptySlot': 'Čekání na připojení...',
     'waiting.hostLeft': 'Hostitel odešel — místnost byla zrušena',
     'net.disconnected': 'Spojení ztraceno',
-    'net.reconnecting': 'Připojování…',
     'net.reconnected': 'Znovu připojeno!',
-    'net.reconnectFailed': 'Nepodařilo se znovu připojit — hra možná skončila.',
-    'net.reconnectGaveUp': 'Nepodařilo se znovu připojit.',
+    'net.rejoinTitle': 'ODPOJEN/A',
+    'net.rejoinRoomLabel': 'Místnost',
+    'net.rejoinBtn': 'PŘIPOJIT SE ZNOVU',
+    'net.backToLobby': 'ZPĚT DO LOBBY',
+    'net.disconnectedTryingToRejoin': 'Zkouší se automaticky znovu připojit…',
+    'net.rejoining': 'Připojování…',
+    'net.rejoinFailed': 'Nepodařilo se znovu připojit — zkuste to tlačítkem znovu.',
     'net.playerDisconnected': '{jméno} se odpojil(a) — čeká se na opětovné připojení…',
     'net.playerReconnected': '{jméno} se znovu připojil(a)!',
     'net.playerRemoved': '{jméno} se nepodařilo znovu připojit a byl(a) odebrán(a) ze hry.',
@@ -1492,11 +1515,10 @@ let isHost = false;
 
 // ── Reconnection state ──
 // intentionalDisconnect distinguishes "we meant to close this socket" (leaving, host
-// closed the room, etc.) from a real drop — only the latter should trigger a reconnect
-// attempt. Set this to true immediately before any deliberate socket.close() call.
+// closed the room, etc.) from a real drop — only the latter should trigger a rejoin.
+// Set this to true immediately before any deliberate socket.close() call.
 let intentionalDisconnect = false;
-let reconnecting = false;
-let reconnectAttemptNum = 1;
+let rejoinInProgress = false;
 // pid -> Date.now() when we first saw them listed as disconnected, purely for rendering
 // a local countdown alongside the "disconnected" badge — the server is the actual
 // authority on when the grace period expires.
@@ -1511,11 +1533,10 @@ setInterval(() => {
     countdownEl.textContent = ` (${remaining}s)`;
   });
 }, 1000);
-// Must comfortably cover the server's RECONNECT_GRACE_MS (30s) — giving up sooner than
-// that means the client abandons a seat the server would still have honored.
+// How long the server holds a disconnected player's seat before eliminating them — used
+// here purely to label the badge countdown above; the rejoin flow itself doesn't need to
+// track this client-side (see attemptRejoin()).
 const RECONNECT_GRACE_MS = 30 * 1000;
-const RECONNECT_MAX_ATTEMPTS = 20;
-const RECONNECT_RETRY_DELAY_MS = 2000;
 
 // Session info is persisted so a reconnect attempt can survive not just a dropped socket
 // (roomCode/myId already in memory for that case) but also a full page reload — some
@@ -1576,14 +1597,15 @@ function connectSocket(){
       reject(new Error('Could not connect to server'));
     };
     ws.onclose = () => {
-      // A stale/abandoned socket (e.g. left over from an earlier reconnect attempt)
-      // closing after the fact must never act on whatever session is current now — only
-      // the socket we're actually still using gets to trigger a reconnect or a toast.
+      // A stale/abandoned socket (e.g. left over from an earlier attempt) closing after
+      // the fact must never act on whatever session is current now — only the socket
+      // we're actually still using gets to trigger anything here.
       if (ws !== socket) return;
       socketReady = false;
       if (intentionalDisconnect) { intentionalDisconnect = false; return; }
       if (G && G.phase && G.phase !== 'GAME_OVER' && roomCode && myId) {
-        attemptReconnect();
+        showRejoinScreen('net.disconnectedTryingToRejoin');
+        attemptRejoin(); // one automatic try, to smooth over a truly momentary blip
       } else {
         toast(t('net.disconnected') || 'Connection lost');
       }
@@ -1618,71 +1640,56 @@ function hideWakingOverlay(){
   document.getElementById('wakingOverlay').classList.add('hidden');
 }
 
-// Fired on an unexpected socket close mid-game (tab backgrounded, brief network drop,
-// etc.) — tries to open a fresh connection and reattach to the same seat via the
-// server's reconnect grace window, retrying a few times with backoff before giving up.
-//
-// reconnectGen guards against a real failure mode: a retry gets scheduled (e.g. after a
-// connection error, or a 'reconnectFailed' race), but by the time its timer fires, an
-// EARLIER attempt has already reconnected successfully. Without this guard, that stale
-// retry would still run — unconditionally closing the now-good socket and opening a new
-// one — which can cascade into a churn of repeated disconnect/reconnect cycles, each
-// restarting the server's grace timer, until the retry budget or the timer runs out for
-// real despite having reconnected in time.
-let reconnectGen = 0;
-let reconnectInFlightGen = 0;
-let reconnectSilent = false;
-function attemptReconnect(attempt, gen, silent){
-  if (attempt === undefined || attempt === 1) { gen = ++reconnectGen; reconnectSilent = !!silent; } // fresh top-level trigger
-  if (gen !== reconnectGen) return; // superseded by a newer or already-completed cycle
-  attempt = attempt || 1;
-  reconnectAttemptNum = attempt;
-  reconnectInFlightGen = gen;
-  if (!reconnecting) {
-    reconnecting = true;
-    toast(t('net.reconnecting') || 'Reconnecting…', 8000);
-  }
-  if (socket) { try { socket.close(); } catch (e) {} }
+// ── Disconnect / rejoin flow ──
+// A mid-game disconnect shows a dedicated screen with the room code and a manual REJOIN
+// button, rather than retrying silently in a loop. One automatic attempt fires right away
+// (attemptRejoin() called from ws.onclose / session-resume) to smooth over a genuinely
+// momentary blip, but any failure surfaces as a single, clearly-labeled action the person
+// controls themselves — no background process left running that could race with a fresh
+// manual create/join, or with itself, or outlive its own usefulness.
+function showRejoinScreen(statusKey){
+  document.getElementById('rejoinRoomCode').textContent = roomCode || '';
+  setRejoinStatus(statusKey);
+  document.getElementById('rejoinBtn').disabled = false;
+  showScreen('rejoinScreen');
+}
+function setRejoinStatus(key){
+  document.getElementById('rejoinStatus').textContent = (key && t(key)) || '';
+}
+function attemptRejoin(){
+  if (rejoinInProgress) return;
+  rejoinInProgress = true;
+  setRejoinStatus('net.rejoining');
+  document.getElementById('rejoinBtn').disabled = true;
+  if (socket) { try { intentionalDisconnect = true; socket.close(); } catch (e) {} }
   socket = null; socketReady = false;
-  // "Silent" only ever means: don't show the blocking full-screen waking overlay (used for
-  // the automatic page-load session-resume attempt, so it can't prevent someone who just
-  // wants to start a fresh game from clicking Create/Join). The toast above always shows —
-  // if this attempt is actually reconnecting to a game the person just got disconnected
-  // from, they should see *something* happening rather than silence that looks like nothing
-  // is being tried at all.
-  if (!reconnectSilent) showWakingOverlayIfSlow();
+  showWakingOverlayIfSlow();
   connectSocket().then(() => {
     hideWakingOverlay();
-    if (gen !== reconnectGen) return;
+    if (!rejoinInProgress) return; // gave up while the socket was still opening
     sendToServer('reconnect', { roomCode, pid: myId });
   }).catch(() => {
     hideWakingOverlay();
-    if (gen !== reconnectGen) return;
-    if (attempt < RECONNECT_MAX_ATTEMPTS) {
-      setTimeout(() => attemptReconnect(attempt + 1, gen), RECONNECT_RETRY_DELAY_MS);
-    } else {
-      giveUpReconnecting();
-    }
+    if (!rejoinInProgress) return; // gave up while the socket was still opening
+    rejoinInProgress = false;
+    document.getElementById('rejoinBtn').disabled = false;
+    setRejoinStatus('net.rejoinFailed');
   });
 }
-
-function giveUpReconnecting(){
-  reconnecting = false;
-  toast(t('net.reconnectGaveUp') || 'Could not reconnect.');
+function giveUpAndReturnToLobby(){
+  rejoinInProgress = false;
   clearSession();
+  if (socket) { try { intentionalDisconnect = true; socket.close(); } catch (e) {} }
+  socket = null; socketReady = false;
   G = null; myId = null; roomCode = ''; isHost = false;
   showScreen('lobbyScreen');
 }
-
-// A manual Create/Join always takes priority over a passive, automatic reconnect attempt
-// (e.g. one attemptSessionResume() kicked off from stale leftover session data in this
-// browser tab). Without this, that background loop keeps running regardless — periodically
-// closing/reopening the shared `socket` as it retries — and can stomp on a freshly-joined
-// game later (including via giveUpReconnecting(), which would wipe the new session's G/
-// myId/roomCode out from under the player, right as they thought they'd joined fine).
-function cancelReconnectAttempts(){
-  reconnectGen++; // any in-flight or scheduled retry will see this mismatch and no-op
-  reconnecting = false;
+// A manual Create/Join always takes priority over any pending rejoin attempt. The rejoin
+// screen and the lobby screen are mutually exclusive, so this is mostly a defensive
+// no-op in practice — but it guards the edge case of a rejoin's connectSocket() still
+// resolving in the background right as a fresh create/join begins.
+function cancelPendingRejoin(){
+  rejoinInProgress = false;
   hideWakingOverlay();
 }
 
@@ -1703,12 +1710,11 @@ function handleServerMessage(msg){
       showWaitingRoom([], null, msg.numPlayers);
       break;
     case 'reconnected':
-      if (!reconnecting) break; // stale — a manual create/join has since taken over
+      if (!rejoinInProgress) break; // stale — already gave up or superseded
       myId = msg.pid;
       roomCode = msg.roomCode;
       isHost = !!msg.isHost;
-      reconnecting = false;
-      reconnectGen++; // invalidate any stale retry still scheduled from before this success
+      rejoinInProgress = false;
       saveSession();
       toast(t('net.reconnected') || 'Reconnected!');
       // state.lastHcd is ordinary persisted game state (so already-connected clients can
@@ -1722,20 +1728,14 @@ function handleServerMessage(msg){
       showScreen('gameScreen');
       break;
     case 'reconnectFailed':
-      // The server didn't have us in its disconnected-players list yet — this is the
-      // expected result of a race right after switching tabs: our new socket can reach
-      // the server and ask to reconnect before it's finished processing the OLD socket's
-      // close event (which is what actually registers the reconnect grace period). Retry
-      // within the same overall budget rather than treating this as permanent — a real
-      // "game ended / seat gone" case will just keep failing until the budget runs out.
-      if (reconnectInFlightGen !== reconnectGen) break; // stale — superseded already
-      if (reconnectAttemptNum < RECONNECT_MAX_ATTEMPTS) {
-        if (socket) { intentionalDisconnect = true; socket.close(); }
-        socket = null; socketReady = false;
-        setTimeout(() => attemptReconnect(reconnectAttemptNum + 1, reconnectGen), RECONNECT_RETRY_DELAY_MS);
-      } else {
-        giveUpReconnecting();
-      }
+      // The server doesn't have us in its disconnected-players list — either the grace
+      // period already ran out (a real "too late"), or this is the same race as before
+      // (our new socket reaching the server just ahead of the old one's close event being
+      // processed). Either way, land on the rejoin screen with a manual retry rather than
+      // guessing which case it is or looping automatically.
+      if (!rejoinInProgress) break;
+      rejoinInProgress = false;
+      showRejoinScreen('net.rejoinFailed');
       break;
     case 'hostLeft':
       intentionalDisconnect = true;
@@ -2140,7 +2140,7 @@ function hideJoinCode() {
 }
 
 async function createGame() {
-  cancelReconnectAttempts();
+  cancelPendingRejoin();
   myName = document.getElementById('playerName').value.trim() || 'Player';
   const numPlayers = parseInt(document.getElementById('numPlayers').value);
   const startCards = parseInt(document.getElementById('startCards').value);
@@ -2157,7 +2157,7 @@ async function createGame() {
 }
 
 async function joinGame() {
-  cancelReconnectAttempts();
+  cancelPendingRejoin();
   myName = document.getElementById('playerName').value.trim() || 'Player';
   const code = document.getElementById('joinCode').value.toUpperCase();
   if (code.length !== 4) { toast('Enter a 4-letter room code'); return; }
@@ -2279,7 +2279,14 @@ function curP(){ return G.players[G.cur]; }
 // player's situation (their pending skip, forced rank, etc.) rather than being told
 // it's simply not their turn.
 function isActuallyMyTurn(){
-  if (!(socket && socketReady && myId)) return true;
+  // Deliberately socket && myId, not socket && socketReady && myId — "who am I" must not
+  // depend on transient connection health. socketReady can be briefly false during a
+  // reconnect handshake even though myId is already known and correct; gating on it here
+  // caused a real bug: right after reconnecting mid-game, this (and five identical checks
+  // elsewhere in render()) would fall through to the solo-mode curP()-based fallback,
+  // showing the CURRENT TURN's player as "you" instead of your actual seat — including
+  // rendering an opponent's hidden/empty hand as your own.
+  if (!(socket && myId)) return true;
   const p = curP();
   return !!(p && p.id === myId);
 }
@@ -3216,7 +3223,7 @@ function render(){
   G.actionLock=false;
   const p=curP();
   const isMyTurn = G.phase==='PLAYING' && p && (
-    (socket && socketReady && myId) ? p.id === myId : true
+    (socket && myId) ? p.id === myId : true
   );
 
   // Round number
@@ -3261,7 +3268,7 @@ function render(){
   renderOpponents();
 
   // My status bar
-  const me = (socket && socketReady && myId)
+  const me = (socket && myId)
     ? G.players.find(p => p.id === myId)
     : (G.phase==='DIR_CHOICE'
         ? (G.players.find(p=>p.id===G.dealerPid)||curP())
@@ -3288,7 +3295,7 @@ function render(){
   // Leave toggle — always the viewing player's own intent, not whoever's turn it is
   // right now (curP() is turn-based; a player should be able to flag "leaving" on any
   // turn, including someone else's).
-  const selfP = (socket && socketReady && myId) ? G.players.find(pl => pl.id === myId) : p;
+  const selfP = (socket && myId) ? G.players.find(pl => pl.id === myId) : p;
   const lta=document.getElementById('leaveToggleArea');
   if(lta&&selfP&&selfP.out&&G.phase==='PLAYING'){
     // An eliminated player has no active round to "finish" before leaving, so the
@@ -3307,7 +3314,7 @@ function render(){
 }
 
 function renderHand(isMyTurn){
-  const me = (socket && socketReady && myId)
+  const me = (socket && myId)
     ? G.players.find(p => p.id === myId)
     : (G.phase==='DIR_CHOICE'
         ? (G.players.find(p=>p.id===G.dealerPid)||curP())
@@ -3425,7 +3432,7 @@ function renderActionBar(isMyTurn, me){
 }
 
 function renderOpponents(){
-  const perspectivePid = (socket && socketReady && myId) ? myId : (G.phase==='DIR_CHOICE'?(G.dealerPid||curP().id):curP().id);
+  const perspectivePid = (socket && myId) ? myId : (G.phase==='DIR_CHOICE'?(G.dealerPid||curP().id):curP().id);
   const activePid = perspectivePid;
   const activeIdx=G.players.findIndex(p=>p.id===activePid);
   const a=alive();
@@ -3831,15 +3838,17 @@ function dbPopulatePlayers(){
 document.getElementById('playerName').focus();
 
 // If a session was persisted from a previous page load (mobile browsers can discard a
-// long-backgrounded tab's JS context entirely, not just drop its socket), try to silently
-// rejoin that room/seat before falling back to the normal landing screen.
+// long-backgrounded tab's JS context entirely, not just drop its socket), show the same
+// rejoin screen used for an in-page disconnect and try once automatically — one unified
+// path instead of two different automatic mechanisms.
 (function attemptSessionResume(){
   const session = loadSession();
   if (!session || !session.roomCode || !session.pid) return;
   myId = session.pid;
   roomCode = session.roomCode;
   myName = session.name || '';
-  attemptReconnect(undefined, undefined, true);
+  showRejoinScreen('net.disconnectedTryingToRejoin');
+  attemptRejoin();
 })();
 
 </script>
