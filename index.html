@@ -184,14 +184,15 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   align-items: flex-start;
   padding: 8px;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .opponent-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  min-width: 60px;
+  min-width: 0;
+  flex: 1 1 0;
 }
 .opponent-name {
   font-family: 'Cinzel', serif;
@@ -227,7 +228,6 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 #gameScreen[data-players="4"] .opponent-slot,
 #gameScreen[data-players="5"] .opponent-slot,
 #gameScreen[data-players="6"] .opponent-slot {
-  min-width: 46px;
   gap: 2px;
 }
 #gameScreen[data-players="4"] .opponent-name,
@@ -238,7 +238,7 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 #gameScreen[data-players="4"] .opponent-name-text,
 #gameScreen[data-players="5"] .opponent-name-text,
 #gameScreen[data-players="6"] .opponent-name-text {
-  max-width: 58px;
+  max-width: 100%;
 }
 #gameScreen[data-players="4"] .card-mini,
 #gameScreen[data-players="5"] .card-mini,
