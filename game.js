@@ -124,6 +124,16 @@ function drawN(state, n, log) {
         const bad = x => x.r === '7' || (x.r === 'K' && x.s === 'Leaves');
         state.draw = state.draw.filter(x => !bad(x));
         state.players.forEach(p => { p.hand = p.hand.filter(x => !bad(x)); });
+        // Cards already pulled into `out` earlier in THIS SAME call (before the deck ran
+        // dry and triggered stripping) were drawn back when state.stripped wasn't set
+        // yet, so the checks above never touched them. Purge them here — deliberately
+        // NOT replaced or backfilled: the loop below simply continues its remaining
+        // iterations (still capped at n total draw attempts), so discovering the strip
+        // partway through a multi-card draw can legitimately leave the player with fewer
+        // than n cards overall, same as if those particular draws had come up empty.
+        for (let j = out.length - 1; j >= 0; j--) {
+          if (bad(out[j])) out.splice(j, 1);
+        }
         if (state.play.length > 0 && bad(state.play[state.play.length - 1])) {
           state.play[state.play.length - 1].ghost = true;
         }
