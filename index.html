@@ -1271,6 +1271,7 @@ const STRINGS = {
     'roundend.tieReplay': 'Tied — round {round} will be replayed',
     'roundend.replayBtn': 'REPLAY ROUND',
     'roundend.nextRoundBtn': 'NEXT ROUND',
+    'roundend.seeResultBtn': 'SEE RESULT',
     'roundend.waitingForOthers': 'WAITING FOR OTHERS…',
     'roundend.losesLife': 'Loses a life',
     'hcd.subtitle': 'Lowest card deals',
@@ -1421,6 +1422,7 @@ const STRINGS = {
     'roundend.tieReplay': 'Remíza - kolo {round} se opakuje',
     'roundend.replayBtn': 'Opakovat kolo',
     'roundend.nextRoundBtn': 'Další kolo',
+    'roundend.seeResultBtn': 'Zobrazit výsledek',
     'roundend.waitingForOthers': 'Čeká se na ostatní…',
     'roundend.losesLife': 'ztrácí život',
     'hcd.subtitle': 'Hráč s nejnižší kartou rozdává',
@@ -2050,7 +2052,8 @@ function applyServerState(publicState, lastResult, actorPid){
   }
 
   // Handle overlays triggered by server state changes
-  if (publicState.phase === 'ROUND_END' && publicState.roundResult) {
+  const roundJustEndedTheGame = publicState.phase === 'GAME_OVER' && lastResult && lastResult.roundOver;
+  if ((publicState.phase === 'ROUND_END' || roundJustEndedTheGame) && publicState.roundResult) {
     // Reconstruct scores/losers from roundResult for showRoundEnd
     const result = publicState.roundResult;
     const scores = result.scores.map(s => ({
@@ -2070,6 +2073,11 @@ function applyServerState(publicState, lastResult, actorPid){
     const winnerPid = result.roundWinnerPid;
     const protectedLosers = winnerPid ? losers.filter(s => s.p.id !== winnerPid) : losers;
     G.roundWinnerPid = winnerPid || null;
+    // If this round also ended the game, the scoreboard's "Next Round" button has nothing
+    // to advance to — remember the game's winner so it can lead into the game-over screen
+    // instead, once the animation below has actually played out (see the button's onclick
+    // in the HTML and onNextRound()).
+    G.pendingGameOverWinner = roundJustEndedTheGame ? (G.winner ? G.players.find(p => p.id === G.winner) : null) : undefined;
     // If the round ended on the back of a card that's still visually flying to the
     // center, let that animation land first — otherwise the scoreboard overlay appears
     // on top of (and outlasts) a card that's still mid-flight, which looks broken.
@@ -2105,7 +2113,10 @@ function applyServerState(publicState, lastResult, actorPid){
   if (publicState.phase === 'DIR_CHOICE') {
     const dlr = G.players.find(p => p.id === G.dealerPid) || G.players[0];
     if (dlr && dlr.id === myId) showDirChoice(dlr);
-  } else if (publicState.phase === 'GAME_OVER') {
+  } else if (publicState.phase === 'GAME_OVER' && !roundJustEndedTheGame) {
+    // Only for a LATER incidental broadcast while already sitting in GAME_OVER (e.g. a
+    // reconnecting player catching up) — the case where THIS broadcast just caused the
+    // game to end is handled above, via the scoreboard's "Next Round"/"Continue" button.
     const winner = G.winner ? G.players.find(p => p.id === G.winner) : null;
     showGameOver(winner);
   }
@@ -3148,7 +3159,9 @@ function showRoundEnd(scores, losers, disconnectedPid){
         </div>
       </div>`;
     }).join('');
-    document.getElementById('nextRoundBtn').style.display='block';
+    const nextBtn1 = document.getElementById('nextRoundBtn');
+    nextBtn1.textContent = G.pendingGameOverWinner !== undefined ? t('roundend.seeResultBtn') : t('roundend.nextRoundBtn');
+    nextBtn1.style.display='block';
     overlay.classList.remove('hidden');
     render();
     return;
@@ -3172,7 +3185,9 @@ function showRoundEnd(scores, losers, disconnectedPid){
       <div class="score-row loser">
         <div><div>${loserScore.p.name}${leavingBadge(loserScore.p.id)} ${loserDots}</div><div class="score-hand">${t('roundend.losesLife')}</div></div>
       </div>`;
-    document.getElementById('nextRoundBtn').style.display='block';
+    const nextBtn2 = document.getElementById('nextRoundBtn');
+    nextBtn2.textContent = G.pendingGameOverWinner !== undefined ? t('roundend.seeResultBtn') : t('roundend.nextRoundBtn');
+    nextBtn2.style.display='block';
     overlay.classList.remove('hidden');
     render();
     return;
@@ -3194,12 +3209,24 @@ function showRoundEnd(scores, losers, disconnectedPid){
       <div style="font-family:'Cinzel',serif; font-size:18px;">${t('game.ptsSuffix',{n:s.pts})}</div>
     </div>`;
   }).join('');
-  document.getElementById('nextRoundBtn').style.display='block';
+  const nextBtn = document.getElementById('nextRoundBtn');
+  nextBtn.textContent = G.pendingGameOverWinner !== undefined ? t('roundend.seeResultBtn') : t('roundend.nextRoundBtn');
+  nextBtn.style.display='block';
   overlay.classList.remove('hidden');
   render();
 }
 
 function onNextRound(){
+  if (G.pendingGameOverWinner !== undefined) {
+    // This round's scoreboard was the direct result of the game ending — there's no next
+    // round for the server to advance to, so this button leads straight into the
+    // game-over screen instead of sending 'nextRound'.
+    const winner = G.pendingGameOverWinner;
+    G.pendingGameOverWinner = undefined;
+    document.getElementById('roundEndOverlay').classList.add('hidden');
+    showGameOver(winner);
+    return;
+  }
   if(socket && socketReady){
     // Server won't advance the round until every connected, alive player has clicked
     // Next Round. Keep the overlay up (rather than hiding it immediately) and show a
