@@ -2561,6 +2561,8 @@ function onChooseDir(dir){
 }
 
 // ── Play card ──
+let lastCardClickId=null, lastCardClickTime=0;
+const DOUBLE_CLICK_MS=400;
 function onCardClick(cardId){
   if(G.phase!=='PLAYING') return;
   if(!isActuallyMyTurn()){ toast(t('ui.notYourTurn')); return; }
@@ -2569,20 +2571,23 @@ function onCardClick(cardId){
   if(!card) return;
   if(!canPlay(card)){ toast('Cannot play that card'); return; }
   if(G.drewQueenEmpty && card.r!=='Q'){ toast(t('ui.mustPlayQueenToast')); return; }
+
+  const now=Date.now();
+  if(lastCardClickId===cardId && (now-lastCardClickTime)<DOUBLE_CLICK_MS){
+    // Second click on the same card within the window — play it immediately. Tracked by
+    // card id and timing rather than the browser's native dblclick, since selecting a
+    // card re-renders and lifts it (changing its on-screen position before the second
+    // click lands), which throws off dblclick's own proximity-based detection for mouse
+    // input specifically.
+    lastCardClickId=null; lastCardClickTime=0;
+    SEL=card;
+    onPlayBtn();
+    return;
+  }
+  lastCardClickId=cardId; lastCardClickTime=now;
+
   SEL=(SEL&&SEL.id===cardId)?null:card;
   render();
-}
-
-function onCardDoubleClick(cardId){
-  if(G.phase!=='PLAYING') return;
-  if(!isActuallyMyTurn()){ toast(t('ui.notYourTurn')); return; }
-  const p=curP();
-  const card=p.hand.find(c=>c.id===cardId);
-  if(!card) return;
-  if(!canPlay(card)){ toast('Cannot play that card'); return; }
-  if(G.drewQueenEmpty && card.r!=='Q'){ toast(t('ui.mustPlayQueenToast')); return; }
-  SEL=card;
-  onPlayBtn();
 }
 
 function onPlayBtn(){
@@ -3470,7 +3475,6 @@ function renderHand(isMyTurn){
 
     div.innerHTML=buildCardFace(card,false);
     div.addEventListener('click',function(){ onCardClick(card.id); });
-    div.addEventListener('dblclick',function(){ onCardDoubleClick(card.id); });
     div.addEventListener('mouseenter',function(){
       if(!isSel&&playable)
         div.style.transform='rotate('+angle+'deg) translateY('+(arcY-10)+'px)';
