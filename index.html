@@ -2573,6 +2573,18 @@ function onCardClick(cardId){
   render();
 }
 
+function onCardDoubleClick(cardId){
+  if(G.phase!=='PLAYING') return;
+  if(!isActuallyMyTurn()){ toast(t('ui.notYourTurn')); return; }
+  const p=curP();
+  const card=p.hand.find(c=>c.id===cardId);
+  if(!card) return;
+  if(!canPlay(card)){ toast('Cannot play that card'); return; }
+  if(G.drewQueenEmpty && card.r!=='Q'){ toast(t('ui.mustPlayQueenToast')); return; }
+  SEL=card;
+  onPlayBtn();
+}
+
 function onPlayBtn(){
   if(!SEL) return;
   if(G.actionLock) return;
@@ -3458,6 +3470,7 @@ function renderHand(isMyTurn){
 
     div.innerHTML=buildCardFace(card,false);
     div.addEventListener('click',function(){ onCardClick(card.id); });
+    div.addEventListener('dblclick',function(){ onCardDoubleClick(card.id); });
     div.addEventListener('mouseenter',function(){
       if(!isSel&&playable)
         div.style.transform='rotate('+angle+'deg) translateY('+(arcY-10)+'px)';
