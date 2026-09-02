@@ -2099,6 +2099,19 @@ function applyServerState(publicState, lastResult, actorPid){
       showRoundEnd(scores, protectedLosers.length ? protectedLosers : losers, result.disconnectedPid || null);
     };
     const preDelay = cardWasPlayed ? ROUND_END_ANIMATION_DELAY : 0;
+    // A Queen-ended round that also ends the game skips the scoreboard entirely — the
+    // Queen's own animation already shows who closed the round, and there's no burn
+    // aftermath to summarize, so the scoreboard would just be an extra screen to click
+    // through before reaching the winner. Go straight from the card animation to the
+    // game-over screen instead. A burn ending the game still shows the scoreboard, since
+    // that's the only place showing who was about to lose when the game-ending burn hit.
+    if (roundJustEndedTheGame && !didBurn) {
+      setTimeout(function(){
+        G.pendingGameOverWinner = undefined;
+        showGameOver(G.winner ? G.players.find(p => p.id === G.winner) : null);
+      }, preDelay);
+      return;
+    }
     const afterBurnOrDelay = function(){
       const elapsedBudget = preDelay + (didBurn ? BURN_EFFECT_MS : 0);
       const extra = Math.max(0, sideEffectAnimMs - elapsedBudget);
