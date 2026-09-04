@@ -307,8 +307,10 @@ function maybeAutoResolveGhostDirection(room) {
   // watching anymore) or who have actually disconnected.
   const stillConnected = room.players.has(dealer.id);
   if (stillConnected && !dealer.ghostLeaver) return;
-  state.log.push(`${dealer.name} is out and cannot choose — direction picked automatically.`);
-  G.actionChooseDirection(state, Math.random() < 0.5 ? 1 : -1);
+  const { card, dir } = G.drawDirectionCard();
+  state.lastDirDraw = { card, dir, dealerName: dealer.name };
+  state.log.push(`${dealer.name} is out and cannot choose — direction drawn automatically: ${G.cardStr(card)}.`);
+  G.actionChooseDirection(state, dir);
 }
 
 // ── Disconnect / reconnect ────────────────────────────────────

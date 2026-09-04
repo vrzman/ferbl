@@ -1030,6 +1030,16 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   <button id="hcdContinueBtn" onclick="hcdContinue()" class="btn btn-primary" data-i18n="hcd.continue" style="margin-top:20px;max-width:200px;display:none;">CONTINUE</button>
 </div>
 
+<!-- ══ DIRECTION DRAW OVERLAY (ghost dealer auto-resolve) ══ -->
+<div id="dirDrawOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:300;flex-direction:column;align-items:center;justify-content:center;padding:20px;">
+  <div style="font-family:'Cinzel',serif;font-size:13px;letter-spacing:3px;color:var(--gold-dark);margin-bottom:6px;" data-i18n="dirDraw.title">DIRECTION DRAWN</div>
+  <div style="font-size:12px;color:var(--cream-dark);opacity:0.7;margin-bottom:4px;text-align:center;max-width:280px;" id="dirDrawSubtitle" data-i18n="dirDraw.subtitle">Cannot choose — direction drawn instead</div>
+  <div style="font-size:10px;font-family:'Cinzel',serif;letter-spacing:1px;color:rgba(201,168,76,0.5);margin-bottom:20px;text-transform:uppercase;text-align:center;max-width:280px;" data-i18n="dirDraw.legend">Hearts/Balls: counter-clockwise — Leaves/Acorns: clockwise</div>
+  <div id="dirDrawCard" style="width:66px;height:100px;border-radius:8px;margin-bottom:24px;"></div>
+  <div id="dirDrawResult" style="font-family:'Cinzel',serif;font-size:15px;color:var(--gold);letter-spacing:2px;text-align:center;min-height:24px;"></div>
+  <button id="dirDrawContinueBtn" onclick="finishDirDrawOverlay()" class="btn btn-primary" data-i18n="hcd.continue" style="margin-top:20px;max-width:200px;display:none;">CONTINUE</button>
+</div>
+
 <!-- ══ DIRECTION CHOICE OVERLAY ══ -->
 <div id="dirOverlay" class="hidden">
   <div id="dirBox">
@@ -1185,6 +1195,9 @@ const STRINGS = {
     'lobby.cardsMaxSuffix': ' (max)',
     'hcd.title': 'HIGH CARD DRAW',
     'hcd.continue': 'CONTINUE',
+    'dirDraw.title': 'DIRECTION DRAWN',
+    'dirDraw.subtitle': '{name} cannot choose — direction drawn instead',
+    'dirDraw.legend': 'Hearts/Balls: counter-clockwise — Leaves/Acorns: clockwise',
     'direction.title': 'CHOOSE DIRECTION',
     'direction.clockwise': '→ CLOCKWISE',
     'direction.counterClockwise': '← COUNTER-CLOCKWISE',
@@ -1336,6 +1349,9 @@ const STRINGS = {
     'lobby.cardsMaxSuffix': ' (max)',
     'hcd.title': 'Los o rozdávání',
     'hcd.continue': 'Pokračovat',
+    'dirDraw.title': 'Směr vylosován',
+    'dirDraw.subtitle': '{jméno} nemůže vybrat — směr se losuje kartou',
+    'dirDraw.legend': 'Srdce/Kule: proti směru — Listy/Žaludy: po směru',
     'direction.title': 'Vyber směr',
     'direction.clockwise': '→ Po směru',
     'direction.counterClockwise': '← Proti směru',
@@ -1752,6 +1768,7 @@ function handleServerMessage(msg){
       // stuck forever acking it — nobody else has any reason to ack an overlay they can't
       // see. The very next 'state' message tells us what's actually current.
       skipNextHcdReplay = true;
+      skipNextDirDrawReplay = true;
       showScreen('gameScreen');
       break;
     case 'reconnectFailed':
@@ -1883,6 +1900,8 @@ function serverHcdToOverlayData(hcd, players){
 let lastShownHcdSignature = null;
 // Set on reconnect — see the 'reconnected' handler for why.
 let skipNextHcdReplay = false;
+let lastShownDirDrawSignature = null;
+let skipNextDirDrawReplay = false;
 
 function applyServerState(publicState, lastResult, actorPid){
   if (!G) G = {};
@@ -1921,6 +1940,7 @@ function applyServerState(publicState, lastResult, actorPid){
   G.startLives = publicState.startLives;
   G.roundWinnerPid = publicState.roundWinnerPid || null;
   G.lastHcd = publicState.lastHcd ? serverHcdToOverlayData(publicState.lastHcd, publicState.players) : null;
+  G.lastDirDraw = publicState.lastDirDraw || null;
   // Fields that only matter locally for solo mode (no server equivalent needed):
   G.actionLock = false;        // server validates per-action; client lock not needed online
   G.dealerPlaying8 = false;    // server resolves this fully; client just renders result
@@ -2161,6 +2181,18 @@ function applyServerState(publicState, lastResult, actorPid){
   } else if (G.pendingInitialPeek) {
     const peek = G.pendingInitialPeek; G.pendingInitialPeek = null;
     peekBottomCard(peek);
+  }
+  // Show the direction-draw reveal whenever the server hands us a new one (a ghost dealer
+  // who wasn't present to choose manually) — same dedupe-by-signature approach as HCD.
+  if (skipNextDirDrawReplay) {
+    skipNextDirDrawReplay = false;
+    if (G.lastDirDraw) lastShownDirDrawSignature = JSON.stringify(G.lastDirDraw);
+  } else if (G.lastDirDraw) {
+    const dirSig = JSON.stringify(G.lastDirDraw);
+    if (dirSig !== lastShownDirDrawSignature) {
+      lastShownDirDrawSignature = dirSig;
+      showDirDrawOverlay(G.lastDirDraw, function(){ G.lastDirDraw = null; });
+    }
   }
 }
 let lastLogCount = 0;
@@ -3294,7 +3326,7 @@ function showGameOver(winner){
 }
 
 function hideOverlays(){
-  ['announceOverlay','dirOverlay','roundEndOverlay','gameOverOverlay','hcdOverlay'].forEach(id=>{
+  ['announceOverlay','dirOverlay','roundEndOverlay','gameOverOverlay','hcdOverlay','dirDrawOverlay'].forEach(id=>{
     document.getElementById(id).classList.add('hidden');
   });
 }
@@ -3805,6 +3837,42 @@ function finishHcdOverlay(){
   btn.textContent=t('hcd.continue');
   if(hcdOnContinue) hcdOnContinue();
   hcdOnContinue = null;
+}
+
+let dirDrawOnContinue = null;
+function showDirDrawOverlay(data, onContinue){
+  dirDrawOnContinue = onContinue;
+  document.getElementById('dirDrawSubtitle').textContent = t('dirDraw.subtitle', {name:data.dealerName, jméno:data.dealerName});
+  document.getElementById('dirDrawResult').textContent = '';
+  document.getElementById('dirDrawContinueBtn').style.display = 'none';
+
+  const cardEl = document.getElementById('dirDrawCard');
+  cardEl.innerHTML = '<div style="width:66px;height:100px;border-radius:8px;background:var(--burgundy-dark);border:1.5px solid rgba(201,168,76,0.3);box-shadow:0 3px 10px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">'
+    + '<svg width="40" height="54" viewBox="0 0 40 54" fill="none"><ellipse cx="20" cy="27" rx="12" ry="16" stroke="rgba(201,168,76,0.4)" stroke-width="1"/><ellipse cx="20" cy="27" rx="7" ry="10" stroke="rgba(201,168,76,0.3)" stroke-width="0.5"/></svg>'
+    + '</div>';
+
+  const overlay = document.getElementById('dirDrawOverlay');
+  overlay.classList.remove('hidden');
+  overlay.style.display = 'flex';
+
+  setTimeout(function(){
+    const card = data.card;
+    cardEl.style.transition = 'transform 0.3s';
+    cardEl.innerHTML = '<div class="card suit-'+card.s+'" style="width:66px;height:100px;border-radius:8px;">'
+      + buildCardFace(card, false) + '</div>';
+    setTimeout(function(){
+      document.getElementById('dirDrawResult').textContent = data.dir === 1 ? t('direction.clockwiseLabel') : t('direction.counterClockwiseLabel');
+      document.getElementById('dirDrawContinueBtn').style.display = 'block';
+    }, 500);
+  }, 500);
+}
+
+function finishDirDrawOverlay(){
+  const overlay = document.getElementById('dirDrawOverlay');
+  overlay.classList.add('hidden');
+  overlay.style.display = 'none';
+  if (dirDrawOnContinue) dirDrawOnContinue();
+  dirDrawOnContinue = null;
 }
 
 function hcdContinue(){

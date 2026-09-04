@@ -75,6 +75,17 @@ function highCardDraw(players) {
   return { dealer, cards: drawn };
 }
 
+// Used when a ghost dealer isn't present (disconnected, or left after their round) to
+// choose a direction themselves — draws a single card from a fresh shuffled deck and
+// picks a side based on suit, same spirit as highCardDraw's dealer-selection reveal.
+// Hearts/Balls -> counter-clockwise (-1), Leaves/Acorns -> clockwise (1).
+function drawDirectionCard() {
+  const deck = shuffle(buildDeck());
+  const card = deck.pop();
+  const dir = (card.s === 'Hearts' || card.s === 'Balls') ? -1 : 1;
+  return { card, dir };
+}
+
 // ── Playability ───────────────────────────────────────────────
 
 function canPlay(state, c) {
@@ -314,6 +325,7 @@ function createGame(playerNames, startingCards) {
     dealerPlaying8: false, dealerFinalCard: null,
     drewQueenEmpty: false, roundWinnerPid: null,
     lastHcd: null,
+    lastDirDraw: null,
     log: []
   };
 
@@ -797,6 +809,7 @@ function endRound(state, log) {
 
   // Determine next dealer
   state.lastHcd = null;
+  state.lastDirDraw = null;
   if (losers.length === 1) {
     // Single loser deals next round (automatically a ghost dealer if eliminated)
     state.dealerPid = losers[0].p.id;
@@ -863,6 +876,7 @@ function getPublicState(state, forPlayerId) {
     startLives: state.startLives,
     roundWinnerPid: state.roundWinnerPid || null,
     lastHcd: state.lastHcd || null,
+    lastDirDraw: state.lastDirDraw || null,
     roundResult: state.roundResult || null,
     players: state.players.map(p => ({
       id: p.id,
@@ -967,6 +981,7 @@ module.exports = {
   canPlay, playerHasPlayableCard, playerMustPlay,
   getPublicState,
   highCardDraw,
+  drawDirectionCard,
   applyLeavingPlayers, endRound, forceRemovePlayer,
   alive, getTop, curP,
 };
