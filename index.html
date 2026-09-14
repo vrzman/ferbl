@@ -2007,13 +2007,6 @@ function applyServerState(publicState, lastResult, actorPid){
   // state message arrives, so this plays as a cosmetic flourish layered on top of the
   // (already-updated) hand rather than gating the render — keeps multiplayer responsive
   // even if the animation is skipped/interrupted by a fast-following state update.
-  // A drawN() call server-side may have flipped the discard pile back into a fresh draw
-  // pile mid-action — play that visual first, then the normal draw-flight animation below
-  // follows a moment after (matching the actual order these things happen server-side).
-  if (lastResult && lastResult.reshuffled) {
-    playReshuffleEffect();
-  }
-
   if (lastResult && lastResult.drew && lastResult.drew.length && actorPid) {
     const drawCount = lastResult.drew.length;
     if (actorPid === myId) {
@@ -2050,6 +2043,14 @@ function applyServerState(publicState, lastResult, actorPid){
   }
 
   render();
+
+  // A drawN() call server-side may have flipped the discard pile back into a fresh draw
+  // pile mid-action — this must fire AFTER render(), not before: render() unconditionally
+  // resets #topCardEl's className on every call, which would otherwise wipe the flash
+  // class this adds before the browser ever gets a chance to paint it.
+  if (lastResult && lastResult.reshuffled) {
+    playReshuffleEffect();
+  }
 
   // Some played cards cause OTHER players to draw as an immediate side effect (10 of
   // Hearts). That's a separate visual event from the played-card animation above, so it
@@ -2884,20 +2885,28 @@ function playBurnEffect(callback){
   }, 1100);
 }
 function playReshuffleEffect(){
-  const deckEl=document.getElementById('drawDeckEl');
-  const topEl=document.getElementById('topCardEl');
-  if(deckEl){
-    deckEl.classList.remove('deck-reshuffling');
-    void deckEl.offsetWidth; // force reflow so re-adding the class re-triggers the animation on back-to-back reshuffles
-    deckEl.classList.add('deck-reshuffling');
-    setTimeout(()=>{ deckEl.classList.remove('deck-reshuffling'); }, 650);
-  }
-  if(topEl){
-    topEl.classList.remove('reshuffle-flash');
-    void topEl.offsetWidth;
-    topEl.classList.add('reshuffle-flash');
-    setTimeout(()=>{ topEl.classList.remove('reshuffle-flash'); }, 650);
-  }
+  // Deferred to the next tick deliberately: render() unconditionally resets
+  // #topCardEl's className on every call, and callers of this function (multiplayer's
+  // applyServerState, several solo-mode draw paths) don't all trigger this at a point
+  // guaranteed to be after their own last render() in the same synchronous stack. Rather
+  // than choreograph exact ordering at every call site, just wait until the current
+  // synchronous work (including any render() calls) has finished.
+  setTimeout(function(){
+    const deckEl=document.getElementById('drawDeckEl');
+    const topEl=document.getElementById('topCardEl');
+    if(deckEl){
+      deckEl.classList.remove('deck-reshuffling');
+      void deckEl.offsetWidth; // force reflow so re-adding the class re-triggers the animation on back-to-back reshuffles
+      deckEl.classList.add('deck-reshuffling');
+      setTimeout(()=>{ deckEl.classList.remove('deck-reshuffling'); }, 650);
+    }
+    if(topEl){
+      topEl.classList.remove('reshuffle-flash');
+      void topEl.offsetWidth;
+      topEl.classList.add('reshuffle-flash');
+      setTimeout(()=>{ topEl.classList.remove('reshuffle-flash'); }, 650);
+    }
+  }, 0);
 }
 function peekBottomCard(card){
   const peek=document.getElementById('deckPeek');
