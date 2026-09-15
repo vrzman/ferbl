@@ -286,6 +286,7 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   display: flex;
   gap: 20px;
   align-items: center;
+  position: relative;
 }
 
 /* ── Effect bar ── */
@@ -451,27 +452,29 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 #topCardEl .card-rank-tl, #topCardEl .card-rank-br { font-size: 15px; }
 #topCardEl .card-suit-center { font-size: 36px; }
 
-@keyframes deckShuffleShake {
+@keyframes reshuffleShake {
   0%,100% { transform: translateX(0) rotate(0deg); }
-  10% { transform: translateX(-4px) rotate(-3deg); }
-  20% { transform: translateX(4px) rotate(3deg); }
-  30% { transform: translateX(-4px) rotate(-3deg); }
-  40% { transform: translateX(4px) rotate(3deg); }
-  50% { transform: translateX(-3px) rotate(-2deg); }
-  60% { transform: translateX(3px) rotate(2deg); }
-  70% { transform: translateX(-2px) rotate(-1deg); }
-  80% { transform: translateX(1px) rotate(0deg); }
+  10% { transform: translateX(-4px) rotate(-2deg); }
+  20% { transform: translateX(4px) rotate(2deg); }
+  30% { transform: translateX(-4px) rotate(-2deg); }
+  40% { transform: translateX(4px) rotate(2deg); }
+  50% { transform: translateX(-3px) rotate(-1deg); }
+  60% { transform: translateX(3px) rotate(1deg); }
+  70% { transform: translateX(-1px) rotate(0deg); }
 }
-.deck-reshuffling { animation: deckShuffleShake 0.6s ease-in-out; }
-.deck-reshuffling .card-back {
-  box-shadow: 0 0 16px rgba(201,168,76,0.9), 0 4px 8px rgba(0,0,0,0.4);
-  transition: box-shadow 0.15s;
+.reshuffle-shake { animation: reshuffleShake 0.6s ease-in-out; }
+@keyframes reshuffleBurst {
+  0% { box-shadow: 0 0 0 0 rgba(201,168,76,0.9); background: rgba(201,168,76,0.3); opacity: 1; }
+  100% { box-shadow: 0 0 26px 12px rgba(201,168,76,0); background: rgba(201,168,76,0); opacity: 0; }
 }
-@keyframes reshuffleFlash {
-  0%,100% { opacity: 1; }
-  50% { opacity: 0.25; }
+.reshuffle-burst {
+  position: absolute;
+  inset: -12px;
+  border-radius: 14px;
+  pointer-events: none;
+  z-index: 60;
+  animation: reshuffleBurst 0.6s ease-out;
 }
-.reshuffle-flash { animation: reshuffleFlash 0.3s ease-in-out 2; }
 
 /* Draw deck */
 #drawDeckEl {
@@ -2885,28 +2888,21 @@ function playBurnEffect(callback){
   }, 1100);
 }
 function playReshuffleEffect(){
-  // Deferred to the next tick deliberately: render() unconditionally resets
-  // #topCardEl's className on every call, and callers of this function (multiplayer's
-  // applyServerState, several solo-mode draw paths) don't all trigger this at a point
-  // guaranteed to be after their own last render() in the same synchronous stack. Rather
-  // than choreograph exact ordering at every call site, just wait until the current
-  // synchronous work (including any render() calls) has finished.
-  setTimeout(function(){
-    const deckEl=document.getElementById('drawDeckEl');
-    const topEl=document.getElementById('topCardEl');
-    if(deckEl){
-      deckEl.classList.remove('deck-reshuffling');
-      void deckEl.offsetWidth; // force reflow so re-adding the class re-triggers the animation on back-to-back reshuffles
-      deckEl.classList.add('deck-reshuffling');
-      setTimeout(()=>{ deckEl.classList.remove('deck-reshuffling'); }, 650);
-    }
-    if(topEl){
-      topEl.classList.remove('reshuffle-flash');
-      void topEl.offsetWidth;
-      topEl.classList.add('reshuffle-flash');
-      setTimeout(()=>{ topEl.classList.remove('reshuffle-flash'); }, 650);
-    }
-  }, 0);
+  // Targets #playPileArea specifically because render() never touches it at all (unlike
+  // #topCardEl, whose className it unconditionally resets on every call) — so this can't
+  // get wiped out regardless of how many render() calls happen before or after this runs,
+  // no deferral/timing tricks needed.
+  const container=document.getElementById('playPileArea');
+  if(!container) return;
+  container.classList.remove('reshuffle-shake');
+  void container.offsetWidth; // force reflow so re-adding the class re-triggers the animation on back-to-back reshuffles
+  container.classList.add('reshuffle-shake');
+  setTimeout(()=>{ container.classList.remove('reshuffle-shake'); }, 650);
+
+  const burst=document.createElement('div');
+  burst.className='reshuffle-burst';
+  container.appendChild(burst);
+  setTimeout(()=>{ burst.remove(); }, 650);
 }
 function peekBottomCard(card){
   const peek=document.getElementById('deckPeek');
