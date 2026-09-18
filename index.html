@@ -2888,6 +2888,7 @@ function playBurnEffect(callback){
   }, 1100);
 }
 function playReshuffleEffect(){
+  toast('[DEBUG] playReshuffleEffect() called', 3000); // TEMPORARY — remove once diagnosed
   // Targets #playPileArea specifically because render() never touches it at all (unlike
   // #topCardEl, whose className it unconditionally resets on every call) — so this can't
   // get wiped out regardless of how many render() calls happen before or after this runs,
