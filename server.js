@@ -417,6 +417,7 @@ function onAction(ws, msg) {
   const room = rooms.get(ws.roomCode);
   if (!room || !room.state) return;
   const state = room.state;
+  const reshufBefore = state.reshuf;
 
   let result;
   switch (msg.action) {
@@ -444,6 +445,10 @@ function onAction(ws, msg) {
     send(ws, 'error', { message: (result && result.error) || 'Action failed' });
     return;
   }
+  // A drawN() call inside the action above may have flipped the discard pile back into a
+  // fresh draw pile (state.reshuf increments each time) — flag it so clients can play a
+  // reshuffle animation, without needing to touch every return path inside game.js.
+  if (state.reshuf > reshufBefore) result.reshuffled = true;
 
   maybeAutoResolveGhostDirection(room);
   broadcastState(room, { lastResult: result, actorPid: ws.pid });
