@@ -2010,6 +2010,9 @@ function applyServerState(publicState, lastResult, actorPid){
   // state message arrives, so this plays as a cosmetic flourish layered on top of the
   // (already-updated) hand rather than gating the render — keeps multiplayer responsive
   // even if the animation is skipped/interrupted by a fast-following state update.
+  if (lastResult && lastResult.drew && lastResult.drew.length) {
+    toast('[DEBUG] drew=' + lastResult.drew.length + ' reshuffled=' + lastResult.reshuffled, 3000); // TEMPORARY
+  }
   if (lastResult && lastResult.drew && lastResult.drew.length && actorPid) {
     const drawCount = lastResult.drew.length;
     if (actorPid === myId) {
