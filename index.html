@@ -3711,7 +3711,7 @@ function renderOpponents(){
 function renderEffects(){
   const bar=document.getElementById('effectBar');
   const badges=[];
-  if(G.pendDraw>0) badges.push(`<span class="effect-badge warn">DRAW ${G.pendDraw}</span>`);
+  if(G.pendDraw>0) badges.push(`<span class="effect-badge warn">${t('ui.drawForcedBtn',{n:G.pendDraw})}</span>`);
   if(G.forcedRank) badges.push(`<span class="effect-badge">${t('ui.forcedRankBadge', {rank:rankNoun(G.forcedRank), hodnota:rankNoun(G.forcedRank)})}</span>`);
   if(G.activeSuit) badges.push(`<span class="effect-badge">${t('ui.activeSuitBadge', {suit:t('suit.'+G.activeSuit), barva:t('suit.'+G.activeSuit)})}</span>`);
   bar.innerHTML=badges.join('');
