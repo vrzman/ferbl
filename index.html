@@ -452,20 +452,16 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 #topCardEl .card-rank-tl, #topCardEl .card-rank-br { font-size: 15px; }
 #topCardEl .card-suit-center { font-size: 36px; }
 
-@keyframes reshuffleShake {
-  0%,100% { transform: translateX(0) rotate(0deg); }
-  10% { transform: translateX(-4px) rotate(-2deg); }
-  20% { transform: translateX(4px) rotate(2deg); }
-  30% { transform: translateX(-4px) rotate(-2deg); }
-  40% { transform: translateX(4px) rotate(2deg); }
-  50% { transform: translateX(-3px) rotate(-1deg); }
-  60% { transform: translateX(3px) rotate(1deg); }
-  70% { transform: translateX(-1px) rotate(0deg); }
+@keyframes reshuffleLanding {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.12); }
+  55% { transform: scale(0.95); }
+  100% { transform: scale(1); }
 }
-.reshuffle-shake { animation: reshuffleShake 0.6s ease-in-out; }
+.reshuffle-landing { animation: reshuffleLanding 0.35s ease-out; }
 @keyframes reshuffleBurst {
-  0% { box-shadow: 0 0 0 0 rgba(201,168,76,0.9); background: rgba(201,168,76,0.3); opacity: 1; }
-  100% { box-shadow: 0 0 26px 12px rgba(201,168,76,0); background: rgba(201,168,76,0); opacity: 0; }
+  0% { box-shadow: 0 0 0 0 rgba(201,168,76,0.95); background: rgba(201,168,76,0.35); opacity: 1; }
+  100% { box-shadow: 0 0 30px 14px rgba(201,168,76,0); background: rgba(201,168,76,0); opacity: 0; }
 }
 .reshuffle-burst {
   position: absolute;
@@ -473,7 +469,7 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   border-radius: 14px;
   pointer-events: none;
   z-index: 60;
-  animation: reshuffleBurst 0.6s ease-out;
+  animation: reshuffleBurst 0.85s ease-out;
 }
 
 /* Draw deck */
@@ -485,6 +481,12 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   z-index: 0;
 }
 #drawDeckEl .card-back { width: 66px; height: 100px; }
+#drawDeckEl.deck-empty .card-back {
+  background: transparent;
+  border: 1.5px dashed var(--gold);
+  box-shadow: none;
+}
+#drawDeckEl.deck-empty .card-back svg { opacity: 0.2; }
 #deckPeek {
   position: absolute;
   top: 0;
@@ -2010,9 +2012,6 @@ function applyServerState(publicState, lastResult, actorPid){
   // state message arrives, so this plays as a cosmetic flourish layered on top of the
   // (already-updated) hand rather than gating the render — keeps multiplayer responsive
   // even if the animation is skipped/interrupted by a fast-following state update.
-  if (lastResult && lastResult.drew && lastResult.drew.length) {
-    toast('[DEBUG] drew=' + lastResult.drew.length + ' reshuffled=' + lastResult.reshuffled, 3000); // TEMPORARY
-  }
   if (lastResult && lastResult.drew && lastResult.drew.length && actorPid) {
     const drawCount = lastResult.drew.length;
     if (actorPid === myId) {
@@ -2890,23 +2889,64 @@ function playBurnEffect(callback){
     callback();
   }, 1100);
 }
-function playReshuffleEffect(){
-  toast('[DEBUG] playReshuffleEffect() called', 3000); // TEMPORARY — remove once diagnosed
-  // Targets #playPileArea specifically because render() never touches it at all (unlike
-  // #topCardEl, whose className it unconditionally resets on every call) — so this can't
-  // get wiped out regardless of how many render() calls happen before or after this runs,
-  // no deferral/timing tricks needed.
-  const container=document.getElementById('playPileArea');
-  if(!container) return;
-  container.classList.remove('reshuffle-shake');
-  void container.offsetWidth; // force reflow so re-adding the class re-triggers the animation on back-to-back reshuffles
-  container.classList.add('reshuffle-shake');
-  setTimeout(()=>{ container.classList.remove('reshuffle-shake'); }, 650);
+function flyPileToDeck(onDone){
+  const topEl=document.getElementById('topCardEl');
+  const deckEl=document.getElementById('drawDeckEl');
+  if(!topEl||!deckEl){ onDone&&onDone(); return; }
+  const fromRect=topEl.getBoundingClientRect();
+  const toRect=deckEl.getBoundingClientRect();
+  const duration=750;
 
-  const burst=document.createElement('div');
-  burst.className='reshuffle-burst';
-  container.appendChild(burst);
-  setTimeout(()=>{ burst.remove(); }, 650);
+  const clone=document.createElement('div');
+  clone.style.cssText=[
+    'position:fixed',
+    'left:'+fromRect.left+'px',
+    'top:'+fromRect.top+'px',
+    'width:'+fromRect.width+'px',
+    'height:'+fromRect.height+'px',
+    'border-radius:8px',
+    'background:var(--burgundy-dark)',
+    'border:1.5px solid rgba(201,168,76,0.5)',
+    'box-shadow:0 8px 24px rgba(0,0,0,0.6), 0 0 20px rgba(201,168,76,0.5)',
+    'z-index:9995',
+    'pointer-events:none',
+    'transform:perspective(600px) rotateY(0deg)'
+  ].join(';');
+  document.body.appendChild(clone);
+
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      clone.style.transition='left '+duration+'ms cubic-bezier(0.4,0,0.2,1), top '+duration+'ms cubic-bezier(0.4,0,0.2,1), transform '+duration+'ms linear';
+      clone.style.left=toRect.left+'px';
+      clone.style.top=toRect.top+'px';
+      // Two full spins over the flight — reads as "the pile being flipped/shuffled",
+      // not just a single card sliding across.
+      clone.style.transform='perspective(600px) rotateY(720deg)';
+      setTimeout(function(){
+        clone.style.transition='opacity 0.2s';
+        clone.style.opacity='0';
+        setTimeout(function(){
+          if(clone.parentNode) document.body.removeChild(clone);
+          onDone&&onDone();
+        }, 200);
+      }, duration);
+    });
+  });
+}
+function playReshuffleEffect(){
+  flyPileToDeck(function(){
+    const deckEl=document.getElementById('drawDeckEl');
+    if(!deckEl) return;
+    deckEl.classList.remove('reshuffle-landing');
+    void deckEl.offsetWidth; // force reflow so re-adding the class re-triggers the animation on back-to-back reshuffles
+    deckEl.classList.add('reshuffle-landing');
+    setTimeout(()=>{ deckEl.classList.remove('reshuffle-landing'); }, 400);
+
+    const burst=document.createElement('div');
+    burst.className='reshuffle-burst';
+    deckEl.appendChild(burst);
+    setTimeout(()=>{ burst.remove(); }, 900);
+  });
 }
 function peekBottomCard(card){
   const peek=document.getElementById('deckPeek');
@@ -3436,6 +3476,10 @@ function render(){
   // use the plural ("zbývají"); English renders the same either way.
   const deckLeftKey = (G.draw.length >= 2 && G.draw.length <= 4) ? 'game.deckLeftPlural' : 'game.deckLeft';
   document.getElementById('deckCount').textContent=t(deckLeftKey,{n:G.draw.length});
+  // No cards actually sit in the draw pile right now (about to reshuffle, or the pile
+  // genuinely can't be flipped yet) — an opaque card-back would be misleading, so show
+  // just an outline. Still clickable (the click handler is on the parent #drawDeckEl).
+  document.getElementById('drawDeckEl').classList.toggle('deck-empty', G.draw.length===0);
 
   // Effects
   renderEffects();
