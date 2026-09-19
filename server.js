@@ -263,8 +263,8 @@ function onStartGame(ws, msg) {
 // is a numeric array INDEX (not a pid), so it needs no translation — only dealerPid (a pid string)
 // does, and only because we remap in the same order createGame built the players array in.
 function beginGame(room) {
-  const orderedPids = [...room.playerNames.keys()];
-  const orderedNames = orderedPids.map(pid => room.playerNames.get(pid));
+  const orderedPids = [...room.players.keys()];
+  const orderedNames = orderedPids.map(pid => room.playerNames.get(pid) || '?');
 
   room.state = G.createGame(orderedNames, room.settings.startCards);
   console.log('[DEBUG] createGame startCards:', room.settings.startCards, 'player lives:', room.state.players.map(p => p.lives));
@@ -321,6 +321,7 @@ function maybeAutoResolveGhostDirection(room) {
 function handleDisconnectTimeout(room, pid) {
   if (!room.disconnected.has(pid)) return;
   room.disconnected.delete(pid);
+  room.playerNames.delete(pid);
   if (!room.state) return;
   const log = msg => room.state.log.push(msg);
   const result = G.forceRemovePlayer(room.state, pid, log);
@@ -540,6 +541,12 @@ function onNewGame(ws, msg) {
   room.readyForNextRound.clear();
   room.hcdAcks = new Set();
   room.hcdAckSig = null;
+  // Drop any playerNames entries left over from players who are no longer actually
+  // connected (permanently departed, or still mid-reconnect-grace from the old game).
+  // Otherwise beginGame() would seat a stale pid alongside a rejoining player's new one.
+  for (const pid of [...room.playerNames.keys()]) {
+    if (!room.players.has(pid)) room.playerNames.delete(pid);
+  }
 
   const list = [...room.players.keys()].map(pid => ({ id: pid, name: room.playerNames.get(pid) || '?' }));
   for (const ws2 of room.players.values()) {
