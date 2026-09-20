@@ -3759,15 +3759,10 @@ function buildRankPreview(r){
   return `<span>${rankNoun(r)}</span>`;
 }
 function buildSuitPreview(s){
-  // Use a sample card image (the 7) to represent the suit
-  const img=CARD_IMAGES['7_'+s];
-  if(img){
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
-      <img src="${img}" style="width:34px;height:52px;border-radius:4px;border:1.5px solid rgba(201,168,76,0.3);" draggable="false">
-      <span style="font-size:11px;font-family:'Cinzel',serif;letter-spacing:1px;color:var(--cream)">${t('suit.'+s)}</span>
-    </div>`;
-  }
-  return `<span style="color:${COL[s]}">${SYM[s]} ${t('suit.'+s)}</span>`;
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+    <span style="font-size:32px;color:${COL[s]};line-height:1;">${SYM[s]}</span>
+    <span style="font-size:11px;font-family:'Cinzel',serif;letter-spacing:1px;color:var(--cream)">${t('suit.'+s)}</span>
+  </div>`;
 }
 
 function cardStr(c){ return cardName(c.r, c.s); }
