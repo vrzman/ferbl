@@ -303,7 +303,7 @@ function chooseDirection(state, dir, log) {
       log(`${first.name} goes first.`);
     }
   }
-  return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}) };
+  return { success: true, direction: dir, ...(sideEffectDraws ? { sideEffectDraws } : {}) };
 }
 
 // ── Game state factory ────────────────────────────────────────
@@ -509,6 +509,7 @@ function actionPlayCard(state, playerId, cardId, announcement) {
     if (announcement.type === 'rank') { state.forcedRank = announcement.value; log(`Forced rank: ${announcement.value}.`); }
     if (announcement.type === 'suit') { state.activeSuit = announcement.value; log(`Active suit: ${announcement.value}.`); }
   }
+  const appliedAnnouncement = announcement ? { type: announcement.type, value: announcement.value } : null;
 
   // Remove card from hand, place on play pile
   player.hand = player.hand.filter(c => c.id !== cardId);
@@ -570,6 +571,7 @@ function actionPlayCard(state, playerId, cardId, announcement) {
     // at all, and the screen just cut straight to the burn flame + scoreboard.
     const mergedSideEffects = Object.assign({}, sideEffectDraws || {}, preEndDraws || {});
     if (Object.keys(mergedSideEffects).length) result.sideEffectDraws = mergedSideEffects;
+    if (appliedAnnouncement) result.announced = appliedAnnouncement;
     return result;
   }
 
@@ -577,7 +579,7 @@ function actionPlayCard(state, playerId, cardId, announcement) {
   if (state.dealerPlaying8) {
     if (card.r === '8') {
       log('Dealer plays another 8 — plays again.');
-      return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}) };
+      return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}), ...(appliedAnnouncement ? { announced: appliedAnnouncement } : {}) };
     }
     // Final (non-8) card of the dealer's 8-sequence — this ends the chain, so the
     // card's own effect needs to actually apply here. It was previously skipped
@@ -613,7 +615,7 @@ function actionPlayCard(state, playerId, cardId, announcement) {
 
     if (playAgain) {
       log(`${player.name} plays again.`);
-      return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}) };
+      return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}), ...(appliedAnnouncement ? { announced: appliedAnnouncement } : {}) };
     }
 
     if (needsDirChoice(state)) {
@@ -643,13 +645,13 @@ function actionPlayCard(state, playerId, cardId, announcement) {
       if (card.r === 'K' && card.s === 'Leaves') dm = ` ${otherP.name} must draw 5.`;
       log(`2 players — ${otherP.name} goes first.${dm}`);
     }
-    return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}) };
+    return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}), ...(appliedAnnouncement ? { announced: appliedAnnouncement } : {}) };
   }
 
   // Play again check
   const playAgain = (card.r === '10' && card.s === 'Hearts') || (card.r === '8' && alive(state).length === 2);
   if (!playAgain) setCur(state, nxt(state, player.id));
-  return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}) };
+  return { success: true, ...(sideEffectDraws ? { sideEffectDraws } : {}), ...(appliedAnnouncement ? { announced: appliedAnnouncement } : {}) };
 }
 
 function actionDrawCard(state, playerId) {

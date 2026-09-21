@@ -340,6 +340,16 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   border: 5px solid transparent;
   border-top-color: #0f2015;
 }
+/* Opponents sit near the top of the table, so their bubbles hang below their seat
+   instead of above it (which would run off the top of the screen), with the tail
+   flipped to point up at them. */
+.chat-bubble.below { transform: translate(-50%, 0); }
+.chat-bubble.below.show { transform: translate(-50%, 6px); }
+.chat-bubble.below::after {
+  top: auto; bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: #0f2015;
+}
 
 /* ── Cards ── */
 .card {
@@ -2098,6 +2108,18 @@ function applyServerState(publicState, lastResult, actorPid){
     showChatBubble(actorPid, t('bubble.skip'));
   }
 
+  if (lastResult && lastResult.announced && actorPid) {
+    if (lastResult.announced.type === 'suit') {
+      showChatBubble(actorPid, suitBubbleHtml(lastResult.announced.value), {isHtml:true});
+    } else if (lastResult.announced.type === 'rank') {
+      showChatBubble(actorPid, rankNoun(lastResult.announced.value));
+    }
+  }
+
+  if (lastResult && lastResult.direction !== undefined && actorPid) {
+    showChatBubble(actorPid, directionBubbleHtml(lastResult.direction), {isHtml:true});
+  }
+
   // Some played cards cause OTHER players to draw as an immediate side effect (10 of
   // Hearts). That's a separate visual event from the played-card animation above, so it
   // gets its own pass here — same face-down deck-to-seat animation regular draws use,
@@ -2638,6 +2660,7 @@ function onChooseDir(dir){
   const dealer=G.players.find(p=>p.id===G.dealerPid)||alive()[0];
   const first=firstAliveAfterDealer(dir);
   addLog(t('log.direction', {direction: dir===1?t('direction.clockwise'):t('direction.counterClockwise'), směr: dir===1?t('direction.clockwise'):t('direction.counterClockwise')}));
+  showChatBubble(dealer.id, directionBubbleHtml(dir), {isHtml:true});
 
   if(G.dealerFinalCard){
     const fc=G.dealerFinalCard; G.dealerFinalCard=null;
@@ -3218,7 +3241,10 @@ function onAnnounce(val){
   }
   const ann={type:ANN.type, value:val};
   const c=ANN.card;
+  const announcerId=curP().id;
   ANN=null; SEL=null;
+  if(ann.type==='suit'){ showChatBubble(announcerId, suitBubbleHtml(ann.value), {isHtml:true}); }
+  if(ann.type==='rank'){ showChatBubble(announcerId, rankNoun(ann.value)); }
 
   // If dealerFinalCard, trigger dir choice after announcement
   if(G.dealerFinalCard&&G.dealerFinalCard.id===c.id){
@@ -3842,7 +3868,7 @@ function findPlayerAnchorEl(pid){
   }
   return document.querySelector('.opponent-slot[data-pid="'+pid+'"]');
 }
-function showChatBubble(pid, content, duration){
+function showChatBubble(pid, content, opts){
   const anchor=findPlayerAnchorEl(pid);
   if(!anchor) return;
   if(activeBubbles[pid]){
@@ -3851,18 +3877,32 @@ function showChatBubble(pid, content, duration){
     delete activeBubbles[pid];
   }
   const rect=anchor.getBoundingClientRect();
+  const isSelf=(pid===myId);
   const el=document.createElement('div');
-  el.className='chat-bubble';
-  el.textContent=content;
+  el.className='chat-bubble'+(isSelf?'':' below');
+  if(opts&&opts.isHtml) el.innerHTML=content; else el.textContent=content;
   el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
-  el.style.top=Math.max(rect.top,24)+'px';
+  el.style.top=(isSelf ? Math.max(rect.top,24) : rect.bottom)+'px';
   document.body.appendChild(el);
   requestAnimationFrame(function(){ requestAnimationFrame(function(){ el.classList.add('show'); }); });
   const timer=setTimeout(function(){
     el.classList.remove('show');
     setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); if(activeBubbles[pid]&&activeBubbles[pid].el===el) delete activeBubbles[pid]; }, 250);
-  }, duration||2200);
+  }, (opts&&opts.duration)||2200);
   activeBubbles[pid]={el:el, timer:timer};
+}
+
+// Small reusable pieces for the suit/direction reaction bubbles — same visuals as the
+// suit-picker icons and the persistent direction-arrow indicator, just sized for a bubble.
+function suitBubbleHtml(suit){
+  return '<img src="'+SUIT_ICONS[suit]+'" style="height:22px;width:auto;display:block;" draggable="false">';
+}
+function directionBubbleHtml(dir){
+  const flip = dir===1 ? 'scaleX(-1)' : 'scaleX(1)';
+  return '<svg width="20" height="20" viewBox="0 0 32 32" style="display:block;transform:'+flip+';">'
+    + '<path d="M16 4 A12 12 0 1 1 4.5 20" fill="none" stroke="var(--gold)" stroke-width="2.5" stroke-linecap="round"/>'
+    + '<polygon points="16,0 20,7 12,7" fill="var(--gold)" transform="rotate(35,16,4)"/>'
+    + '</svg>';
 }
 
 // ── Toast ──
