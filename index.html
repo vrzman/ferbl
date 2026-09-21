@@ -312,6 +312,35 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 }
 .effect-badge.warn { background: rgba(160,24,24,0.2); border-color: rgba(160,24,24,0.4); color: #e05555; }
 
+/* ── Chat bubbles (accept-skip now, player emojis later) ── */
+.chat-bubble {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  font-family: 'Cinzel', serif;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background: #0f2015;
+  border: 1px solid rgba(201,168,76,0.5);
+  color: var(--cream);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1500;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+}
+.chat-bubble.show { opacity: 1; transform: translate(-50%, calc(-100% - 6px)); }
+.chat-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%; top: 100%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #0f2015;
+}
+
 /* ── Cards ── */
 .card {
   width: var(--card-w);
@@ -1279,6 +1308,7 @@ const STRINGS = {
     'log.hasLeftGame': '{name} has left the game.',
     'log.acceptsSkip': '{name} accepts the skip.',
     'ui.acceptSkipBtn': 'ACCEPT SKIP',
+    'bubble.skip': 'I skip',
     'ui.mustPlayJ': 'Must play a J',
     'ui.mustPlayRankOrJ': 'Must play a {rank} (or optionally a J)',
     'ui.mustPlayToast': 'Must play a {rank}',
@@ -1434,6 +1464,7 @@ const STRINGS = {
     'log.hasLeftGame': '{jméno} opustil/a hru',
     'log.acceptsSkip': '{jméno} stojí',
     'ui.acceptSkipBtn': 'STOJÍM',
+    'bubble.skip': 'Stojím',
     'ui.mustPlayJ': 'Můžeš hrát jen spodka',
     'ui.mustPlayRankOrJ': 'Můžeš hrát jen {rank} (nebo spodka)',
     'ui.mustPlayToast': 'Můžeš hrát jen {rank}',
@@ -2061,6 +2092,10 @@ function applyServerState(publicState, lastResult, actorPid){
   // class this adds before the browser ever gets a chance to paint it.
   if (lastResult && lastResult.reshuffled) {
     playReshuffleEffect();
+  }
+
+  if (lastResult && lastResult.skipped && actorPid) {
+    showChatBubble(actorPid, t('bubble.skip'));
   }
 
   // Some played cards cause OTHER players to draw as an immediate side effect (10 of
@@ -3153,6 +3188,7 @@ function onAcceptSkip(){
   if(socket && socketReady){ sendToServer('action', {action:'acceptSkip'}); return; }
   const p=curP();
   G.pendSkip=false; addLog(t('log.acceptsSkip', {name:p.name, jméno:p.name}));
+  showChatBubble(p.id, t('bubble.skip'));
   setCur(nxt(p.id)); render();
 }
 
@@ -3703,7 +3739,7 @@ function renderOpponents(){
     ):'';
     // Label position: with 2 opponents, left=clockwise next, right=counter-clockwise next
     const isDisconnected=G.disconnectedPids&&G.disconnectedPids.includes(p.id);
-    return `<div class="opponent-slot${isCur?' current':''}">
+    return `<div class="opponent-slot${isCur?' current':''}" data-pid="${p.id}">
       <div class="opponent-name">
         <span class="opponent-name-text">${p.name}</span>${isDisconnected?`<span class="disconnected-badge" data-pid="${p.id}">${t('net.disconnectedBadge')}<span class="disc-countdown"></span></span>`:''}
       </div>
@@ -3792,6 +3828,41 @@ function addLog(msg){
     div.textContent=msg;
     panel.insertBefore(div, panel.firstChild);
   }
+}
+
+// ── Chat bubbles ──
+// Generic floating speech bubble anchored above a player's seat. Used today for the
+// automatic "Stojím"/"I skip" reaction when a player accepts an Ace skip; built so a
+// future player-sent emoji can call the same showChatBubble(pid, content) with no changes
+// here — content can be plain text or a single emoji character.
+const activeBubbles={};
+function findPlayerAnchorEl(pid){
+  if(pid===myId){
+    return document.getElementById('handArea');
+  }
+  return document.querySelector('.opponent-slot[data-pid="'+pid+'"]');
+}
+function showChatBubble(pid, content, duration){
+  const anchor=findPlayerAnchorEl(pid);
+  if(!anchor) return;
+  if(activeBubbles[pid]){
+    clearTimeout(activeBubbles[pid].timer);
+    if(activeBubbles[pid].el.parentNode) activeBubbles[pid].el.parentNode.removeChild(activeBubbles[pid].el);
+    delete activeBubbles[pid];
+  }
+  const rect=anchor.getBoundingClientRect();
+  const el=document.createElement('div');
+  el.className='chat-bubble';
+  el.textContent=content;
+  el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
+  el.style.top=Math.max(rect.top,24)+'px';
+  document.body.appendChild(el);
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ el.classList.add('show'); }); });
+  const timer=setTimeout(function(){
+    el.classList.remove('show');
+    setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); if(activeBubbles[pid]&&activeBubbles[pid].el===el) delete activeBubbles[pid]; }, 250);
+  }, duration||2200);
+  activeBubbles[pid]={el:el, timer:timer};
 }
 
 // ── Toast ──

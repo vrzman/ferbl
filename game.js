@@ -722,7 +722,7 @@ function actionAcceptSkip(state, playerId) {
   state.pendSkip = false;
   log(`${player.name} accepts the skip.`);
   setCur(state, nxt(state, player.id));
-  return { success: true };
+  return { success: true, skipped: true };
 }
 
 // ── Round end ─────────────────────────────────────────────────
