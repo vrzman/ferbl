@@ -340,6 +340,16 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   border: 5px solid transparent;
   border-top-color: #0f2015;
 }
+/* Opponents sit near the top of the table, so their bubbles hang below their seat
+   instead of above it (which would run off the top of the screen), with the tail
+   flipped to point up at them. */
+.chat-bubble.below { transform: translate(-50%, 0); }
+.chat-bubble.below.show { transform: translate(-50%, 6px); }
+.chat-bubble.below::after {
+  top: auto; bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: #0f2015;
+}
 
 /* ── Cards ── */
 .card {
@@ -3851,11 +3861,12 @@ function showChatBubble(pid, content, duration){
     delete activeBubbles[pid];
   }
   const rect=anchor.getBoundingClientRect();
+  const isSelf=(pid===myId);
   const el=document.createElement('div');
-  el.className='chat-bubble';
+  el.className='chat-bubble'+(isSelf?'':' below');
   el.textContent=content;
   el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
-  el.style.top=Math.max(rect.top,24)+'px';
+  el.style.top=(isSelf ? Math.max(rect.top,24) : rect.bottom)+'px';
   document.body.appendChild(el);
   requestAnimationFrame(function(){ requestAnimationFrame(function(){ el.classList.add('show'); }); });
   const timer=setTimeout(function(){
