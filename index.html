@@ -1569,6 +1569,9 @@ const RANK_INFO_CS = {
   'K':{nom:'král', acc:'krále', plural:'králové', gender:'m', animate:true},
   'A':{nom:'eso', acc:'eso', plural:'esa', gender:'n', animate:false}
 };
+// English full-word rank names, so badges/bubbles read "Jack"/"Queen"/"King"/"Ace" instead
+// of the bare card letter. Plain numbers pass through unchanged.
+const RANK_NAME_EN = { '7':'7', '8':'8', '9':'9', '10':'10', 'J':'Jack', 'Q':'Queen', 'K':'King', 'A':'Ace' };
 const SUIT_ADJ_CS = {
   Leaves:{f:{nom:'listová',acc:'listovou'}, m:{nom:'listový',acc:'listového'}, n:{nom:'listové',acc:'listové'}},
   Hearts:{f:{nom:'srdcová',acc:'srdcovou'}, m:{nom:'srdcový',acc:'srdcového'}, n:{nom:'srdcové',acc:'srdcové'}},
@@ -1584,14 +1587,14 @@ function cardName(rank, suit, capitalize, grammCase){
     const ri = RANK_INFO_CS[rank];
     s = `${SUIT_ADJ_CS[suit][ri.gender][grammCase]} ${ri[grammCase]}`;
   } else {
-    s = `${rank} of ${t('suit.'+suit)}`;
+    s = `${RANK_NAME_EN[rank]} of ${t('suit.'+suit)}`;
   }
   return capitalize ? cap(s) : s;
 }
 // Rank alone (no suit), used in standalone badges like "forced rank: K". grammCase: 'nom' (default) or 'acc'.
 function rankNoun(rank, capitalize, grammCase){
   grammCase = grammCase || 'nom';
-  let s = (lang === 'cs') ? RANK_INFO_CS[rank][grammCase] : rank;
+  let s = (lang === 'cs') ? RANK_INFO_CS[rank][grammCase] : RANK_NAME_EN[rank];
   return capitalize ? cap(s) : s;
 }
 const RANKS = ['7','8','9','10','J','Q','K','A'];
