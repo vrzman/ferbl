@@ -3867,7 +3867,7 @@ function addLog(msg){
 const activeBubbles={};
 function findPlayerAnchorEl(pid){
   if(pid===myId){
-    return document.getElementById('handArea');
+    return document.getElementById('handCards') || document.getElementById('handArea');
   }
   return document.querySelector('.opponent-slot[data-pid="'+pid+'"]');
 }
