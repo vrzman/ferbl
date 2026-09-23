@@ -3890,7 +3890,7 @@ function showChatBubble(pid, content, opts){
   el.className='chat-bubble'+(isSelf?' self-down':' below');
   if(opts&&opts.isHtml) el.innerHTML=content; else el.textContent=content;
   el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
-  el.style.top=(isSelf ? rect.top : rect.bottom)+'px';
+  el.style.top=(isSelf ? (rect.top-16) : rect.bottom)+'px';
   document.body.appendChild(el);
   requestAnimationFrame(function(){ requestAnimationFrame(function(){ el.classList.add('show'); }); });
   const timer=setTimeout(function(){
