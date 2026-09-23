@@ -3882,10 +3882,10 @@ function showChatBubble(pid, content, opts){
   const rect=anchor.getBoundingClientRect();
   const isSelf=(pid===myId);
   const el=document.createElement('div');
-  el.className='chat-bubble'+(isSelf?'':' below');
+  el.className='chat-bubble below';
   if(opts&&opts.isHtml) el.innerHTML=content; else el.textContent=content;
   el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
-  el.style.top=(isSelf ? Math.max(rect.top,24) : rect.bottom)+'px';
+  el.style.top=rect.top+'px';
   document.body.appendChild(el);
   requestAnimationFrame(function(){ requestAnimationFrame(function(){ el.classList.add('show'); }); });
   const timer=setTimeout(function(){
