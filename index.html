@@ -3877,6 +3877,12 @@ function findPlayerAnchorEl(pid){
   return document.querySelector('.opponent-slot[data-pid="'+pid+'"]');
 }
 function showChatBubble(pid, content, opts){
+  // The player who just made the choice (skip/suit/rank/direction) doesn't need a
+  // reminder of their own action — only opponents should see the reaction. The self
+  // anchoring/positioning below is intentionally left in place (not removed) since a
+  // future player-sent emoji may want to show the sender their own bubble too; that
+  // feature can pass an explicit override instead of relying on this default.
+  if (pid===myId && !(opts&&opts.allowSelf)) return;
   const anchor=findPlayerAnchorEl(pid);
   if(!anchor) return;
   if(activeBubbles[pid]){
