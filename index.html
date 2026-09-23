@@ -331,7 +331,7 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   transition: opacity 0.2s ease, transform 0.2s ease;
   box-shadow: 0 3px 10px rgba(0,0,0,0.4);
 }
-.chat-bubble.show { opacity: 1; transform: translate(-50%, calc(-100% - 16px)); }
+.chat-bubble.show { opacity: 1; transform: translate(-50%, calc(-100% - 6px)); }
 .chat-bubble::after {
   content: '';
   position: absolute;
@@ -350,6 +350,11 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   border-top-color: transparent;
   border-bottom-color: #0f2015;
 }
+/* Own bubble: sits just over the top of the hand cards (same vertical slot as
+   .below, clearing the ribbon above), but the tail still points down into the
+   cards below it rather than up. */
+.chat-bubble.self-down { transform: translate(-50%, 0); }
+.chat-bubble.self-down.show { transform: translate(-50%, 6px); }
 
 /* ── Cards ── */
 .card {
@@ -3882,10 +3887,10 @@ function showChatBubble(pid, content, opts){
   const rect=anchor.getBoundingClientRect();
   const isSelf=(pid===myId);
   const el=document.createElement('div');
-  el.className='chat-bubble below';
+  el.className='chat-bubble'+(isSelf?' self-down':' below');
   if(opts&&opts.isHtml) el.innerHTML=content; else el.textContent=content;
   el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
-  el.style.top=rect.top+'px';
+  el.style.top=(isSelf ? rect.top : rect.bottom)+'px';
   document.body.appendChild(el);
   requestAnimationFrame(function(){ requestAnimationFrame(function(){ el.classList.add('show'); }); });
   const timer=setTimeout(function(){
