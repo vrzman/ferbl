@@ -289,16 +289,6 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
   position: relative;
 }
 
-/* ── Effect bar ── */
-#effectBar {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: center;
-  min-height: 24px;
-  padding: 0 8px;
-  margin-bottom: 8px;
-}
 .effect-badge {
   font-family: 'Cinzel', serif;
   font-size: 10px;
@@ -1023,8 +1013,6 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
 
   <!-- Main table -->
   <div id="tableArea">
-    <!-- Effect indicators -->
-    <div id="effectBar"></div>
 
     <!-- High card draw result -->
     <div id="hcdPanel" style="display:none;text-align:center;margin-bottom:10px;">
@@ -3784,13 +3772,36 @@ function renderOpponents(){
   }).join('');
 }
 
+// Persistent (non-fading) speech bubble anchored above the top-of-discard card,
+// showing whichever single effect it caused — reuses the same visual bubble/tail
+// style as the reaction bubbles, but stays up for as long as the effect is active
+// instead of fading after a couple of seconds, and is driven by render() rather
+// than a one-off trigger. At most one of these three is ever active at once (see
+// canPlay in game.js — pendDraw, forcedRank and activeSuit are mutually exclusive).
 function renderEffects(){
-  const bar=document.getElementById('effectBar');
-  const badges=[];
-  if(G.pendDraw>0) badges.push(`<span class="effect-badge warn">${t('ui.drawForcedBtn',{n:G.pendDraw})}</span>`);
-  if(G.forcedRank) badges.push(`<span class="effect-badge">${t('ui.forcedRankBadge', {rank:rankNoun(G.forcedRank), hodnota:rankNoun(G.forcedRank)})}</span>`);
-  if(G.activeSuit) badges.push(`<span class="effect-badge">${t('ui.activeSuitBadge', {suit:t('suit.'+G.activeSuit), barva:t('suit.'+G.activeSuit)})}</span>`);
-  bar.innerHTML=badges.join('');
+  const anchor=document.getElementById('topCardEl');
+  let content=null, isHtml=false;
+  if(G.pendDraw>0){ content=t('ui.drawForcedBtn',{n:G.pendDraw}); }
+  else if(G.forcedRank){ content=rankNoun(G.forcedRank); }
+  else if(G.activeSuit){ content=suitBubbleHtml(G.activeSuit); isHtml=true; }
+
+  let el=document.getElementById('topCardBubble');
+  if(!content){
+    if(el) el.remove();
+    return;
+  }
+  if(!el){
+    el=document.createElement('div');
+    el.id='topCardBubble';
+    el.className='chat-bubble show';
+    document.body.appendChild(el);
+  }
+  if(isHtml) el.innerHTML=content; else el.textContent=content;
+  const rect=anchor.getBoundingClientRect();
+  // Extra clearance so the bubble sits above the direction-arrow indicator (which sits
+  // directly above the play pile) instead of overlapping it.
+  el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
+  el.style.top=(rect.top-42)+'px';
 }
 
 // ── Card rendering ──
