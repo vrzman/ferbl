@@ -3508,6 +3508,15 @@ function render(){
     (socket && myId) ? p.id === myId : true
   );
 
+  // Effects (top-card bubble) — measured now, before the "Top card" section below
+  // may add the card-played slide-in animation class to #topCardEl. That animation
+  // starts from a translateY(60px) offset, and getBoundingClientRect() reflects the
+  // live transformed position, so measuring after the class change would occasionally
+  // capture that transient mid-animation position instead of the settled one. At this
+  // point in render(), #topCardEl still reflects last frame's settled position, which
+  // is the same resting position this frame will end up at (its box size never changes).
+  renderEffects();
+
   // Round number
   document.getElementById('roundNum').textContent=G.round;
   document.getElementById('gameScreen').setAttribute('data-players', G.players.length);
@@ -3548,9 +3557,6 @@ function render(){
   // genuinely can't be flipped yet) — an opaque card-back would be misleading, so show
   // just an outline. Still clickable (the click handler is on the parent #drawDeckEl).
   document.getElementById('drawDeckEl').classList.toggle('deck-empty', G.draw.length===0);
-
-  // Effects
-  renderEffects();
 
   // Opponents
   renderOpponents();
