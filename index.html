@@ -345,6 +345,10 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
    cards below it rather than up. */
 .chat-bubble.self-down { transform: translate(-50%, 0); }
 .chat-bubble.self-down.show { transform: translate(-50%, 6px); }
+/* Top-of-discard-card bubble (forced rank / active suit / pending draw): a slightly
+   bigger gap than the default reaction-bubble spacing so the tail clears the card
+   cleanly instead of nearly touching it, while still sitting close above it. */
+.chat-bubble.top-card.show { transform: translate(-50%, calc(-100% - 14px)); }
 
 /* ── Cards ── */
 .card {
@@ -3793,15 +3797,13 @@ function renderEffects(){
   if(!el){
     el=document.createElement('div');
     el.id='topCardBubble';
-    el.className='chat-bubble show';
+    el.className='chat-bubble top-card show';
     document.body.appendChild(el);
   }
   if(isHtml) el.innerHTML=content; else el.textContent=content;
   const rect=anchor.getBoundingClientRect();
-  // Extra clearance so the bubble sits above the direction-arrow indicator (which sits
-  // directly above the play pile) instead of overlapping it.
   el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
-  el.style.top=(rect.top-42)+'px';
+  el.style.top=rect.top+'px';
 }
 
 // ── Card rendering ──
