@@ -2443,6 +2443,7 @@ function startGame() {
 function backToLobby() {
   if (socket && socketReady) { intentionalDisconnect = true; socket.close(); socket = null; socketReady = false; }
   clearSession();
+  isHost = false;
   showScreen('lobbyScreen');
   hideOverlays();
 }
@@ -2461,7 +2462,8 @@ function initSoloGame() {
   SEL = null; ANN = null;
   showScreen('gameScreen');
   document.getElementById('debugToggle').style.display='block';
-  if(isHost) document.getElementById('newGameBtn').style.display='inline';
+  isHost = true; // the solo player owns their own game (render() shows New Game for hosts)
+  document.getElementById('newGameBtn').style.display='inline';
   // Show visual HCD before starting first round
   showHcdOverlay(G.lastHcd, t('hcd.subtitle'), function(){ G.lastHcd=null; newRound(); });
 }
@@ -3528,6 +3530,10 @@ function render(){
   const isMyTurn = G.phase==='PLAYING' && p && (
     (socket && myId) ? p.id === myId : true
   );
+
+  // New Game button: host only, re-evaluated on every render so it can't get out of
+  // sync (e.g. it used to vanish after a host reconnect, since only 'gameStarted' showed it).
+  document.getElementById('newGameBtn').style.display = isHost ? 'inline' : 'none';
 
   // Round number
   document.getElementById('roundNum').textContent=G.round;
