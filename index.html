@@ -345,10 +345,28 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
    cards below it rather than up. */
 .chat-bubble.self-down { transform: translate(-50%, 0); }
 .chat-bubble.self-down.show { transform: translate(-50%, 6px); }
-/* Top-of-discard-card bubble (forced rank / active suit / pending draw): a slightly
-   bigger gap than the default reaction-bubble spacing so the tail clears the card
-   cleanly instead of nearly touching it, while still sitting close above it. */
-.chat-bubble.top-card.show { transform: translate(-50%, calc(-100% - 14px)); }
+/* Top-of-discard-card bubble (forced rank / active suit / pending draw). Unlike the
+   reaction bubbles it lives INSIDE #topCardWrap (position:relative, same box as the card)
+   rather than being fixed-positioned from a JS measurement, so it can never drift when
+   surrounding layout shifts (turn changes, choice popups, hand area resizing) and it is
+   unaffected by the card's slide-in transform. It sits northwest of the card — right edge
+   just past the card's centre, tail near its bottom-right corner pointing down at the card —
+   so longer words grow leftwards, away from the direction indicator. */
+#topCardWrap { position: relative; flex-shrink: 0; }
+#topCardBubble.chat-bubble {
+  position: absolute;
+  left: auto; top: auto;
+  right: calc(50% - 16px);
+  bottom: calc(100% + 12px);
+  transform: none;
+  opacity: 1;
+  transition: none;
+  z-index: auto;
+}
+#topCardBubble.chat-bubble::after {
+  left: auto; right: 14px;
+  transform: none;
+}
 
 /* ── Cards ── */
 .card {
@@ -1036,7 +1054,10 @@ select option { background: #1a1a1a; letter-spacing: 1px; }
     <!-- Play pile + draw deck -->
     <div id="playArea">
       <div id="playPileArea">
-        <div id="topCardEl" class="card"></div>
+        <div id="topCardWrap">
+          <div id="topCardEl" class="card"></div>
+          <div id="topCardBubble" class="chat-bubble" style="display:none"></div>
+        </div>
         <div id="drawDeckEl" onclick="onDrawClick()">
           <div id="deckPeek"></div>
           <div class="card-back">
@@ -3508,15 +3529,6 @@ function render(){
     (socket && myId) ? p.id === myId : true
   );
 
-  // Effects (top-card bubble) — measured now, before the "Top card" section below
-  // may add the card-played slide-in animation class to #topCardEl. That animation
-  // starts from a translateY(60px) offset, and getBoundingClientRect() reflects the
-  // live transformed position, so measuring after the class change would occasionally
-  // capture that transient mid-animation position instead of the settled one. At this
-  // point in render(), #topCardEl still reflects last frame's settled position, which
-  // is the same resting position this frame will end up at (its box size never changes).
-  renderEffects();
-
   // Round number
   document.getElementById('roundNum').textContent=G.round;
   document.getElementById('gameScreen').setAttribute('data-players', G.players.length);
@@ -3557,6 +3569,9 @@ function render(){
   // genuinely can't be flipped yet) — an opaque card-back would be misleading, so show
   // just an outline. Still clickable (the click handler is on the parent #drawDeckEl).
   document.getElementById('drawDeckEl').classList.toggle('deck-empty', G.draw.length===0);
+
+  // Effects
+  renderEffects();
 
   // Opponents
   renderOpponents();
@@ -3782,34 +3797,26 @@ function renderOpponents(){
   }).join('');
 }
 
-// Persistent (non-fading) speech bubble anchored above the top-of-discard card,
-// showing whichever single effect it caused — reuses the same visual bubble/tail
-// style as the reaction bubbles, but stays up for as long as the effect is active
-// instead of fading after a couple of seconds, and is driven by render() rather
-// than a one-off trigger. At most one of these three is ever active at once (see
-// canPlay in game.js — pendDraw, forcedRank and activeSuit are mutually exclusive).
+// Speech bubble tied to the top-of-discard card, showing whichever single effect it
+// caused: "Draw X" (7), the forced rank (J) or the active suit icon (Q). Persistent — it is
+// simply shown/hidden with the game state on every render(), like the old badges were.
+// At most one of the three is ever active (see canPlay in game.js: pendDraw, forcedRank and
+// activeSuit are mutually exclusive). The element lives inside #topCardWrap next to the
+// card (see the CSS above), so there is nothing to measure or reposition here.
+// Hidden during the high-card draw and direction choice (before play has actually started),
+// so an effect from the starting card doesn't show through those screens.
 function renderEffects(){
-  const anchor=document.getElementById('topCardEl');
+  const el=document.getElementById('topCardBubble');
+  if(!el) return;
   let content=null, isHtml=false;
-  if(G.pendDraw>0){ content=t('ui.drawForcedBtn',{n:G.pendDraw}); }
-  else if(G.forcedRank){ content=rankNoun(G.forcedRank); }
-  else if(G.activeSuit){ content=suitBubbleHtml(G.activeSuit); isHtml=true; }
-
-  let el=document.getElementById('topCardBubble');
-  if(!content){
-    if(el) el.remove();
-    return;
+  if(G.phase==='PLAYING'){
+    if(G.pendDraw>0){ content=t('ui.drawForcedBtn',{n:G.pendDraw}); }
+    else if(G.forcedRank){ content=rankNoun(G.forcedRank); }
+    else if(G.activeSuit){ content=suitBubbleHtml(G.activeSuit); isHtml=true; }
   }
-  if(!el){
-    el=document.createElement('div');
-    el.id='topCardBubble';
-    el.className='chat-bubble top-card show';
-    document.body.appendChild(el);
-  }
+  if(!content){ el.style.display='none'; return; }
   if(isHtml) el.innerHTML=content; else el.textContent=content;
-  const rect=anchor.getBoundingClientRect();
-  el.style.left=Math.min(Math.max(rect.left+rect.width/2,40),window.innerWidth-40)+'px';
-  el.style.top=rect.top+'px';
+  el.style.display='';
 }
 
 // ── Card rendering ──
