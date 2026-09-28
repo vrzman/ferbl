@@ -1355,7 +1355,11 @@ const STRINGS = {
     'confirm.endGame': 'End game and return to lobby?',
     'confirm.cancel': 'CANCEL',
     'confirm.yes': 'YES',
-    'leave.toggleLabel': 'LEAVE GAME AFTER CURRENT ROUND',
+    'leave.toggleLabel': 'LEAVE GAME',
+    'confirm.leaveGame': 'Leave the game? You will lose all your lives and the game continues without you.',
+    'roundend.leftTitle': 'Round {round} — {name} left the game',
+    'roundend.leftLabel': 'Left the game',
+    'net.playerLeft': '{name} left the game.',
     'leave.returnToLobby': 'RETURN TO LOBBY',
     'lobby.back': 'BACK',
     'log.actionLogTitle': 'ACTION LOG',
@@ -1511,7 +1515,11 @@ const STRINGS = {
     'confirm.endGame': 'Ukončit hru a vrátit se do lobby?',
     'confirm.cancel': 'Zrušit',
     'confirm.yes': 'Ano',
-    'leave.toggleLabel': 'Odejít ze hry po konci kola',
+    'leave.toggleLabel': 'Odejít ze hry',
+    'confirm.leaveGame': 'Opustit hru? Přijdeš o všechny životy a hra pokračuje bez tebe.',
+    'roundend.leftTitle': 'Kolo {round} - {jméno} opustil/a hru',
+    'roundend.leftLabel': 'Opustil/a hru',
+    'net.playerLeft': '{jméno} opustil/a hru.',
     'leave.returnToLobby': 'Zpět do lobby',
     'lobby.back': 'Zpět',
     'log.actionLogTitle': 'Log',
@@ -1946,6 +1954,10 @@ function handleServerMessage(msg){
         const p = G.players.find(pl => pl.id === msg.removedPid);
         if (p) toast(t('net.playerRemoved', { name: p.name, jméno: p.name }), 5000);
       }
+      if (msg.leftPid) {
+        const p = G.players.find(pl => pl.id === msg.leftPid);
+        if (p) toast(t('net.playerLeft', { name: p.name, jméno: p.name }), 4000);
+      }
       break;
     }
     case 'hcdDismiss':
@@ -2243,7 +2255,7 @@ function applyServerState(publicState, lastResult, actorPid){
       sideEffectAnimMs = totalCards * 200 + 700; // stagger interval + last card's flight time
     }
     const showScoreboard = function(){
-      showRoundEnd(scores, protectedLosers.length ? protectedLosers : losers, result.disconnectedPid || null);
+      showRoundEnd(scores, protectedLosers.length ? protectedLosers : losers, result.disconnectedPid || null, !!result.left);
     };
     const preDelay = cardWasPlayed ? ROUND_END_ANIMATION_DELAY : 0;
     // A Queen-ended round that also ends the game skips the scoreboard entirely — the
@@ -3384,7 +3396,7 @@ function showRoundTieReplay(){
   overlay.classList.remove('hidden');
   render();
 }
-function showRoundEnd(scores, losers, disconnectedPid){
+function showRoundEnd(scores, losers, disconnectedPid, playerLeft){
   const overlay=document.getElementById('roundEndOverlay');
   const title=document.getElementById('roundEndTitle');
   const rows=document.getElementById('scoreRows');
@@ -3402,7 +3414,9 @@ function showRoundEnd(scores, losers, disconnectedPid){
   if(disconnectedPid){
     const dp=scores.find(s=>s.p.id===disconnectedPid);
     const dpName=dp?dp.p.name:'';
-    title.textContent=t('roundend.disconnectTitle',{round:G.round, name:dpName, jméno:dpName}) || `${dpName} disconnected and was eliminated`;
+    title.textContent=playerLeft
+      ? (t('roundend.leftTitle',{round:G.round, name:dpName, jméno:dpName}) || `${dpName} left the game`)
+      : (t('roundend.disconnectTitle',{round:G.round, name:dpName, jméno:dpName}) || `${dpName} disconnected and was eliminated`);
     rows.innerHTML=scores.map(s=>{
       const isDp=s.p.id===disconnectedPid;
       const liveDots=s.p.out
@@ -3411,7 +3425,7 @@ function showRoundEnd(scores, losers, disconnectedPid){
       return `<div class="score-row ${isDp?'loser':''}">
         <div>
           <div>${s.p.name}${leavingBadge(s.p.id)} ${liveDots}</div>
-          <div class="score-hand">${isDp?t('roundend.disconnectedLabel')||'Disconnected':''}</div>
+          <div class="score-hand">${isDp?(playerLeft?(t('roundend.leftLabel')||'Left the game'):(t('roundend.disconnectedLabel')||'Disconnected')):''}</div>
         </div>
       </div>`;
     }).join('');
@@ -3619,12 +3633,8 @@ function render(){
     lta.innerHTML='<button onclick="backToLobby()" style="font-size:9px;font-family:Cinzel,serif;letter-spacing:1px;color:rgba(201,168,76,0.5);background:none;border:1px solid rgba(201,168,76,0.3);border-radius:3px;padding:2px 8px;cursor:pointer;">'
       +t('leave.returnToLobby')+'</button>';
   } else if(lta&&selfP&&!selfP.out&&G.phase==='PLAYING'){
-    const isLeaving=leavingAfterRound[selfP.id];
-    lta.innerHTML='<label style="font-size:7.5px;font-family:Cinzel,serif;letter-spacing:1px;color:rgba(201,168,76,0.3);cursor:pointer;display:inline-flex;align-items:center;gap:3px;">'
-      +'<input type="checkbox" class="leave-checkbox-input" '+(isLeaving?'checked':'')
-      +' onchange="if(socket&&socketReady){sendToServer(\'toggleLeave\',{});}else{leavingAfterRound[curP().id]=this.checked;if(!this.checked)delete leavingAfterRound[curP().id];render();}">'
-      +'<span class="leave-checkbox-box"></span>'
-      +t('leave.toggleLabel')+'</label>';
+    lta.innerHTML='<button onclick="confirmLeaveGame()" style="font-size:9px;font-family:Cinzel,serif;letter-spacing:1px;color:rgba(201,168,76,0.5);background:none;border:1px solid rgba(201,168,76,0.3);border-radius:3px;padding:2px 8px;cursor:pointer;">'
+      +t('leave.toggleLabel')+'</button>';
   } else if(lta){ lta.innerHTML=''; }
 }
 
@@ -3958,6 +3968,16 @@ function toast(msg, duration){
   el.textContent=msg; el.classList.remove('hidden');
   if(toastTimer) clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>el.classList.add('hidden'), duration||2500);
+}
+
+// Leave Game: multiplayer treats this like a disconnect with no grace period — the server
+// eliminates the player (all lives lost), the others get a scoreboard saying they left, and
+// the game carries on without them. In solo mode there's no one else, so it just exits.
+function confirmLeaveGame(){
+  showConfirm(t('confirm.leaveGame'), function(){
+    if (socket && socketReady) sendToServer('leaveGame', {});
+    backToLobby();
+  });
 }
 
 function confirmNewGame(){

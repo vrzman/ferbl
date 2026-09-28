@@ -903,7 +903,10 @@ function getPublicState(state, forPlayerId) {
 // who isn't coming back. Reuses the same `out` flag as normal elimination/voluntary
 // leaving, so ghost-dealer and turn-order logic (which already know to skip `out`
 // players) handle them correctly with no further special-casing needed.
-function forceRemovePlayer(state, pid, log) {
+// reason: 'disconnected' (default — reconnect grace period ran out) or 'left' (the player
+// chose Leave Game). Both are the same full elimination; only the wording differs.
+function forceRemovePlayer(state, pid, log, reason) {
+  const left = reason === 'left';
   const player = state.players.find(p => p.id === pid);
   if (!player || player.out) return { success: true, removed: false };
   const wasPlaying = state.phase === 'PLAYING';
@@ -918,7 +921,9 @@ function forceRemovePlayer(state, pid, log) {
   player.losses = state.startLives + 1;
   player.lives = 0;
   player.out = true;
-  log(`${player.name} disconnected and did not reconnect in time — eliminated from the game.`);
+  log(left
+    ? `${player.name} has left the game.`
+    : `${player.name} disconnected and did not reconnect in time — eliminated from the game.`);
 
   const remaining = state.players.filter(p => !p.out);
 
@@ -938,6 +943,7 @@ function forceRemovePlayer(state, pid, log) {
       roundWinnerPid: state.roundWinnerPid || null,
       losers: [pid],
       disconnectedPid: pid,
+      ...(left ? { left: true } : {}),
     };
 
     if (remaining.length > 0) {

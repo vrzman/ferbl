@@ -170,6 +170,7 @@ function handleMessage(ws, msg) {
     case 'startGame': return onStartGame(ws, msg);
     case 'action': return onAction(ws, msg);
     case 'toggleLeave': return onToggleLeave(ws, msg);
+    case 'leaveGame': return onLeaveGame(ws, msg);
     case 'nextRound': return onNextRound(ws, msg);
     case 'hcdAck': return onHcdAck(ws, msg);
     case 'newGame': return onNewGame(ws, msg);
@@ -321,12 +322,24 @@ function maybeAutoResolveGhostDirection(room) {
 function handleDisconnectTimeout(room, pid) {
   if (!room.disconnected.has(pid)) return;
   room.disconnected.delete(pid);
+  removeSeat(room, pid, 'disconnected');
+}
+
+// Permanently removes a player's seat mid-game — shared by the reconnect-timeout path above
+// and the deliberate Leave Game button below. reason: 'disconnected' | 'left'. Either way
+// it's a full elimination (all lives lost), the round in progress ends with a scoreboard
+// recording it, and the game carries on without them.
+function removeSeat(room, pid, reason) {
   room.playerNames.delete(pid);
+  room.leavingAfterRound.delete(pid);
+  room.readyForNextRound.delete(pid);
   if (!room.state) return;
   const log = msg => room.state.log.push(msg);
-  const result = G.forceRemovePlayer(room.state, pid, log);
+  const result = G.forceRemovePlayer(room.state, pid, log, reason);
   maybeAutoResolveGhostDirection(room);
-  broadcastState(room, { lastResult: result, removedPid: pid, disconnectedPids: [...room.disconnected.keys()] });
+  const extra = { lastResult: result, disconnectedPids: [...room.disconnected.keys()] };
+  if (reason === 'left') extra.leftPid = pid; else extra.removedPid = pid;
+  broadcastState(room, extra);
   checkNextRoundReady(room);
   checkHcdAcks(room);
   // If that was the last connected-or-reconnecting player, clean the room up rather than
@@ -453,6 +466,34 @@ function onAction(ws, msg) {
 
   maybeAutoResolveGhostDirection(room);
   broadcastState(room, { lastResult: result, actorPid: ws.pid });
+}
+
+// Deliberate Leave Game mid-game: handled like a disconnect that never gets a grace period.
+// The leaving client goes straight back to the lobby on its own; here we detach its socket
+// from the seat first so the socket's own close event (which follows immediately) doesn't
+// also start a reconnect grace timer for a player who's already gone.
+function onLeaveGame(ws, msg) {
+  const room = rooms.get(ws.roomCode);
+  if (!room || !room.state) return;
+  const pid = ws.pid;
+  if (!pid) return;
+  room.players.delete(pid);
+  ws.pid = null;
+  ws.roomCode = null;
+  if (room.state.phase === 'GAME_OVER') {
+    // Nothing left to eliminate them from — just free the seat and let others see it.
+    room.playerNames.delete(pid);
+    broadcastState(room, { disconnectedPids: [...room.disconnected.keys()] });
+  } else {
+    removeSeat(room, pid, 'left');
+  }
+  if (room.players.size === 0 && room.disconnected.size === 0) {
+    setTimeout(() => {
+      if (rooms.has(room.code) && rooms.get(room.code).players.size === 0 && rooms.get(room.code).disconnected.size === 0) {
+        rooms.delete(room.code);
+      }
+    }, 5 * 60 * 1000);
+  }
 }
 
 function onToggleLeave(ws, msg) {
